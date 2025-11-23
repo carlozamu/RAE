@@ -1,4 +1,7 @@
+from Edoardo.Phenotype.phenotype import Phenotype
+
+
 class Fitness:
     @staticmethod
-    def evaluate(individual: any) -> float:
+    def evaluate(individual: Phenotype) -> float:
         pass
