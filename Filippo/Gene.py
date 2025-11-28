@@ -24,7 +24,7 @@ class PromptNode:
     """
     This class represents a node in the architecture.
     """
-    def __init__(self, type: str, name: str, instruction: str, node_id=None, innovation_number:int=None):
+    def __init__(self, name: str, instruction: str, node_id=None, innovation_number:int=None):
         # 1. Identity
         self.id = node_id if node_id is not None else str(uuid.uuid4())
 
@@ -66,8 +66,7 @@ class PromptNode:
         Creates a clone of the node WITH THE SAME ID.
         Essential for crossover/reproduction.
         """
-        new_node = PromptNode(self.type, self.name, self.instruction, node_id=self.id)
+        new_node = PromptNode(self.name, self.instruction, node_id=self.id, innovation_number=self.innovation_number)
         new_node.embedding = self.embedding.copy()
         return new_node
-
   
