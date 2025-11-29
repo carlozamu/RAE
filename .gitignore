@@ -1,3 +1,4 @@
 evoenv
 Devvone/venv/
 __pycache__/
+.venv
