@@ -1,95 +1,145 @@
-import evaluate
 import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+from langchain_huggingface import HuggingFaceEmbeddings
+import time
 
-
-class CostCalculator:
+class UnifiedFitnessCalculator: # Calcolatore di Fitness con Threshold che integra Risposta, Ragionamento, Costo Token e Tempo (Unified -> Ans e/o Rationale)
     def __init__(self,
-                 w_accuracy=10.0,     # HUGE penalty in case of error
-                 w_token_cost=0.05,   # Cost per word used
-                 w_time_cost=0.5,     # Cost per second elapsed
-                 w_divergence=2.0):   # Cost related to different structure w.r.t. reference solution
-
-        self.w_err = w_accuracy
+                 model_name="sentence-transformers/all-mpnet-base-v2",
+                 w_accuracy=2.0,       # Peso per la correttezza della risposta (semantica)
+                 w_rationale=2.0,      # Peso per la qualità del ragionamento (se presente)
+                 w_token_cost=0.001,   # Penalità per la lunghezza (verbosità)
+                 w_time_cost=0.1):     # Penalità per il tempo di esecuzione
+        
+        print(f"Caricamento modello di embedding: {model_name}...")
+        # Inizializzazione del modello di embedding
+        self.embedding_model = HuggingFaceEmbeddings(model_name=model_name)
+        
+        # Pesi della Fitness Function
+        self.w_acc = w_accuracy
+        self.w_rat = w_rationale
         self.w_tok = w_token_cost
         self.w_time = w_time_cost
-        self.w_div = w_divergence
+        
+        print("Modello caricato e calcolatore pronto.")
 
-    def calculate_keyword_accuracy(self, prediction, reference):
+    def _calculate_semantic_similarity(self, text1, text2):
         """
-        Returns 1 if correct, 0 otherwise
+        Calcola la Cosine Similarity tra due testi usando gli embeddings.
+        Output: Float tra -1.0 (opposti) e 1.0 (identici).
         """
-        pred_words = set(prediction.strip().lower().split())
-        ref_words = set(reference.strip().lower().split())
-        stop_words = {'the', 'a', 'an', 'in', 'on', 'at', 'to', 'from', 'of', 'and', 'is', 'are'}
-        important_ref_words = ref_words - stop_words
+        # Gestione casi vuoti per evitare errori
+        if not text1 or not text2:
+            return 0.0
+            
+        # Creazione embeddings (embed_documents accetta una lista di stringhe)
+        # Nota: usiamo [text] perché la funzione si aspetta una lista
+        emb1 = self.embedding_model.embed_documents([text1])
+        emb2 = self.embedding_model.embed_documents([text2])
+        
+        # Calcolo similarità coseno
+        # cosine_similarity restituisce una matrice [[score]], prendiamo [0][0]
+        similarity = cosine_similarity(emb1, emb2)[0][0]
+        
+        return similarity
 
-        if not important_ref_words:
-            return 1.0 if reference.strip().lower() in prediction.strip().lower() else 0.0
+    def compute(self, 
+                generated_ans, target_ans, 
+                generated_rat=None, target_rat=None, 
+                time_taken=0.0,
+                similarity_threshold=0.8): # Soglia principale per la Risposta (Ans)
+        
+        details = {}
+        
+        # --- 1. Valutazione Risposta ---
+        ans_similarity = self._calculate_semantic_similarity(generated_ans, target_ans)
+        
+        # Logica Threshold Risposta
+        if ans_similarity >= similarity_threshold:
+            ans_loss = 0.0
+            is_ans_correct = True
+        else:
+            ans_loss = 1.0 - ans_similarity
+            is_ans_correct = False
+            
+        weighted_ans_cost = ans_loss * self.w_acc
+        
+        details['ans_sim'] = round(ans_similarity, 4)
+        details['ans_cost'] = round(weighted_ans_cost, 4)
+        details['ans_ok'] = is_ans_correct
 
-        matches = len(important_ref_words.intersection(pred_words))
-        coverage = matches / len(important_ref_words)
-        return 1.0 if coverage == 1.0 else 0.0
+        # --- 2. Valutazione Rationale ---
+        weighted_rat_cost = 0.0
+        if generated_rat and target_rat:
+            rat_similarity = self._calculate_semantic_similarity(generated_rat, target_rat)
+            
+            # Soglia più bassa per il Reasoning (0.8 - 0.2 = 0.6)
+            rat_threshold = similarity_threshold - 0.2 
+            
+            # Logica Threshold Rationale
+            if rat_similarity >= rat_threshold:
+                rat_loss = 0.0
+                is_rat_correct = True
+            else:
+                rat_loss = 1.0 - rat_similarity
+                is_rat_correct = False
+            
+            weighted_rat_cost = rat_loss * self.w_rat
+            
+            details['rat_sim'] = round(rat_similarity, 4)
+            details['rat_cost'] = round(weighted_rat_cost, 4)
+            details['rat_ok'] = is_rat_correct
+        
+        # --- 3. Costi Risorse ---
+        total_text = generated_ans + (" " + generated_rat if generated_rat else "")
+        token_count = len(total_text.split())
+        
+        token_cost = token_count * self.w_tok
+        time_cost = time_taken * self.w_time
+        
+        details['token_cost'] = round(token_cost, 4)
+        details['time_cost'] = round(time_cost, 4)
 
-    def compute(self, generated_text, target_text, generation_time):
-        """
-        Calculate the totale LOSS (to Minimize)
-        Theoretical objective: 0.0 (actually impossible, but we tend to it)
-        """
-        # 1. Accuracy
-        accuracy = self.calculate_keyword_accuracy(generated_text, target_text)
-        # Transform into error (0 if correct, 1 if wrong)
-        error_rate = 1.0 - accuracy
-
-        # 2. ROUGE (Structure)
-        rouge_results = rouge_metric.compute(predictions=[generated_text], references=[target_text])
-        rouge_l = rouge_results['rougeL']
-
-        # GATING: If answer is wrong (Error=1). We do not care of the structure.
-        # We consider divergence = 1, othewise we compute it (1-ROUGE)
-        # Note: if accuracy is 0, the divergence is not helpful, the error dominates 
-        structural_divergence = 1.0 - rouge_l
-
-        # 3. Cost of resources (time consumed)
-        token_count = len(generated_text.split())
-
-        # --- LOSS COMPUTATION ---
-
-        # Base Cost = (Error Weight * Error) + (Divergence Weight * Divergence)
-        # If accuracy = 1 (correct), the first term vanishes.
-        base_cost = (self.w_err * error_rate) + (self.w_div * structural_divergence)
-
-        # Efficiency cost = Token + time
-        efficiency_cost = (self.w_tok * token_count) + (self.w_time * generation_time)
-
-        total_loss = base_cost + efficiency_cost
-
+        # --- Calcolo Totale ---
+        total_loss = weighted_ans_cost + weighted_rat_cost + token_cost + time_cost
+        
         return {
             "loss": round(total_loss, 4),
-            "details": {
-                "is_correct": accuracy > 0,
-                "error_cost": round(self.w_err * error_rate, 4),
-                "divergence_cost": round(self.w_div * structural_divergence, 4),
-                "token_cost": round(self.w_tok * token_count, 4),
-                "time_cost": round(self.w_time * generation_time, 4)
-            }
+            "details": details
         }
 
-
-# Example usage
+# --- ESEMPIO DI UTILIZZO ---
 if __name__ == "__main__":
-    rouge_metric = evaluate.load('rouge')
-
-    generated = "Paris is the capital city of France."
-    target = "Paris is the capital city of France."
-    time_taken = 1.2  # secondi
-
-    # Init
-    loss_engine = CostCalculator(
-        w_accuracy=10.0,       # Main goal: NO ERRORS
-        w_token_cost=0.05,  # Prefer brief answers
-        w_time_cost=0.2,    # Prefer quick answers
-        w_divergence=1.0    # Encourage similar prompt structures (proposed vs. groundtruth) 
+    # Inizializzazione
+    calculator = UnifiedFitnessCalculator(
+        w_accuracy=10.0,    # Priorità alta alla risposta corretta
+        w_rationale=5.0,    # Priorità media al ragionamento
+        w_token_cost=0.01,  
+        w_time_cost=0.1
     )
-
-    result = loss_engine.compute(generated, target, time_taken)
-    print("Loss Result:", result)
+    
+    # Caso 1: Solo Risposta (Semanticamente simile ma parole diverse)
+    print("\n--- TEST 1: Solo Risposta ---")
+    gen_a = "The vehicle is moving fast"
+    ref_a = "The car is traveling quickly" # Stesso significato, parole diverse
+    
+    res1 = calculator.compute(gen_a, ref_a, time_taken=0.5)
+    print(f"Gen: '{gen_a}' vs Ref: '{ref_a}'")
+    print(f"Loss: {res1['loss']}")
+    print(f"Details: {res1['details']}")
+    
+    # Caso 2: Risposta + Rationale
+    print("\n--- TEST 2: Risposta + Rationale ---")
+    gen_rat = "Because the sun is a star, it emits light."
+    ref_rat = "Since the sun is classified as a star, it produces light energy."
+    
+    res2 = calculator.compute(
+        generated_ans=gen_a, 
+        target_ans=ref_a,
+        generated_rat=gen_rat,
+        target_rat=ref_rat,
+        time_taken=1.2
+    )
+    print(f"Gen Rat: '{gen_rat}' \nRef Rat: '{ref_rat}'")
+    print(f"Loss: {res2['loss']}")
+    print(f"Details: {res2['details']}")
