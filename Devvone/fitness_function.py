@@ -3,13 +3,20 @@ from sklearn.metrics.pairwise import cosine_similarity
 from langchain_huggingface import HuggingFaceEmbeddings
 import time
 
-class UnifiedFitnessCalculator: # Calcolatore di Fitness con Threshold che integra Risposta, Ragionamento, Costo Token e Tempo (Unified -> Ans e/o Rationale)
+class UnifiedFitnessCalculator:
+    """
+    Calcolatore di Fitness con Threshold che integra:
+    - Risposta (Accuracy)
+    - Ragionamento (Rationale)
+    - Costo Token (Verbosità)
+    - Complessità Ciclomatica del Grafo del Prompt (NEAT)
+    """
     def __init__(self,
                  model_name="sentence-transformers/all-mpnet-base-v2",
-                 w_accuracy=2.0,       # Peso per la correttezza della risposta (semantica)
-                 w_rationale=2.0,      # Peso per la qualità del ragionamento (se presente)
-                 w_token_cost=0.001,   # Penalità per la lunghezza (verbosità)
-                 w_time_cost=0.1):     # Penalità per il tempo di esecuzione
+                 w_accuracy=2.0,         # Peso per la correttezza della risposta (semantica)
+                 w_rationale=2.0,        # Peso per la qualità del ragionamento (se presente)
+                 w_token_cost=0.001,     # Penalità per la lunghezza (verbosità)
+                 w_complexity_cost=0.07): # Penalità per la complessità del grafo del prompt [#! DA SISTEMARE IN BASE A QUANTO GROSSO è IL GRAFO DI NORMA!]
         
         print(f"Caricamento modello di embedding: {model_name}...")
         # Inizializzazione del modello di embedding
@@ -19,7 +26,7 @@ class UnifiedFitnessCalculator: # Calcolatore di Fitness con Threshold che integ
         self.w_acc = w_accuracy
         self.w_rat = w_rationale
         self.w_tok = w_token_cost
-        self.w_time = w_time_cost
+        self.w_complexity = w_complexity_cost
         
         print("Modello caricato e calcolatore pronto.")
 
@@ -32,22 +39,67 @@ class UnifiedFitnessCalculator: # Calcolatore di Fitness con Threshold che integ
         if not text1 or not text2:
             return 0.0
             
-        # Creazione embeddings (embed_documents accetta una lista di stringhe)
-        # Nota: usiamo [text] perché la funzione si aspetta una lista
+        # Creazione embeddings
         emb1 = self.embedding_model.embed_documents([text1])
         emb2 = self.embedding_model.embed_documents([text2])
         
         # Calcolo similarità coseno
-        # cosine_similarity restituisce una matrice [[score]], prendiamo [0][0]
         similarity = cosine_similarity(emb1, emb2)[0][0]
         
         return similarity
 
+    def _calculate_cyclomatic_complexity(self, num_nodes, num_edges):
+        """
+        Calcola la Complessità Ciclomatica del grafo del prompt.
+        Formula: CC = E - N + 2
+        
+        Dove:
+        - E = numero di archi (edges/links)
+        - N = numero di nodi (nodes)
+        
+        La CC misura il numero di percorsi indipendenti attraverso il grafo.
+        Valori più alti indicano maggiore complessità e più branch decisions.
+        
+        Args:
+            num_nodes: Numero di nodi nel grafo NEAT
+            num_edges: Numero di archi nel grafo NEAT
+            
+        Returns:
+            Complessità Ciclomatica (int)
+        """
+        if num_nodes <= 0:
+            return 0
+        
+        # Formula classica della Complessità Ciclomatica
+        cyclomatic_complexity = num_edges - num_nodes + 2
+        
+        # Assicuriamoci che non sia negativa (per grafi molto semplici)
+        return max(0, cyclomatic_complexity)
+
     def compute(self, 
                 generated_ans, target_ans, 
                 generated_rat=None, target_rat=None, 
-                time_taken=0.0,
-                similarity_threshold=0.8): # Soglia principale per la Risposta (Ans)
+                num_nodes=1, num_edges=0,
+                similarity_threshold=0.8):
+        """
+        Calcola la loss totale considerando:
+        1. Correttezza della risposta (con threshold)
+        2. Qualità del ragionamento (se presente)
+        3. Costo dei token (verbosità)
+        4. Complessità del grafo del prompt (Complessità Ciclomatica)
+        
+        Args:
+            generated_ans: Risposta generata dal modello
+            target_ans: Risposta target/corretta
+            generated_rat: Ragionamento generato (opzionale)
+            target_rat: Ragionamento target (opzionale)
+            num_nodes: Numero di nodi nel grafo NEAT
+            num_edges: Numero di archi nel grafo NEAT
+            similarity_threshold: Soglia per considerare una risposta corretta
+            
+        Returns:
+            Dict con 'loss' totale e 'details' dei componenti
+        """
         
         details = {}
         
@@ -90,18 +142,26 @@ class UnifiedFitnessCalculator: # Calcolatore di Fitness con Threshold che integ
             details['rat_cost'] = round(weighted_rat_cost, 4)
             details['rat_ok'] = is_rat_correct
         
-        # --- 3. Costi Risorse ---
+        # --- 3. Costo Token (Verbosità) ---
         total_text = generated_ans + (" " + generated_rat if generated_rat else "")
         token_count = len(total_text.split())
         
         token_cost = token_count * self.w_tok
-        time_cost = time_taken * self.w_time
         
+        details['token_count'] = token_count
         details['token_cost'] = round(token_cost, 4)
-        details['time_cost'] = round(time_cost, 4)
 
-        # --- Calcolo Totale ---
-        total_loss = weighted_ans_cost + weighted_rat_cost + token_cost + time_cost
+        # --- 4. Costo Complessità Ciclomatica ---
+        cyclomatic_complexity = self._calculate_cyclomatic_complexity(num_nodes, num_edges)
+        complexity_cost = cyclomatic_complexity * self.w_complexity
+        
+        details['num_nodes'] = num_nodes
+        details['num_edges'] = num_edges
+        details['cyclomatic_complexity'] = cyclomatic_complexity
+        details['complexity_cost'] = round(complexity_cost, 4)
+
+        # --- Calcolo Loss Totale ---
+        total_loss = weighted_ans_cost + weighted_rat_cost + token_cost + complexity_cost
         
         return {
             "loss": round(total_loss, 4),
@@ -112,24 +172,29 @@ class UnifiedFitnessCalculator: # Calcolatore di Fitness con Threshold che integ
 if __name__ == "__main__":
     # Inizializzazione
     calculator = UnifiedFitnessCalculator(
-        w_accuracy=10.0,    # Priorità alta alla risposta corretta
-        w_rationale=5.0,    # Priorità media al ragionamento
+        w_accuracy=10.0,        # Priorità alta alla risposta corretta
+        w_rationale=5.0,        # Priorità media al ragionamento
         w_token_cost=0.01,  
-        w_time_cost=0.1
+        w_complexity_cost=0.5   # Penalità per grafi complessi
     )
     
-    # Caso 1: Solo Risposta (Semanticamente simile ma parole diverse)
-    print("\n--- TEST 1: Solo Risposta ---")
+    # Caso 1: Grafo Semplice (Lineare)
+    print("\n--- TEST 1: Grafo Lineare Semplice ---")
     gen_a = "The vehicle is moving fast"
-    ref_a = "The car is traveling quickly" # Stesso significato, parole diverse
+    ref_a = "The car is traveling quickly"
     
-    res1 = calculator.compute(gen_a, ref_a, time_taken=0.5)
+    res1 = calculator.compute(
+        gen_a, ref_a, 
+        num_nodes=3, num_edges=2,  # Grafo lineare: A->B->C
+        similarity_threshold=0.8
+    )
     print(f"Gen: '{gen_a}' vs Ref: '{ref_a}'")
+    print(f"Grafo: 3 nodi, 2 archi -> CC = {res1['details']['cyclomatic_complexity']}")
     print(f"Loss: {res1['loss']}")
     print(f"Details: {res1['details']}")
     
-    # Caso 2: Risposta + Rationale
-    print("\n--- TEST 2: Risposta + Rationale ---")
+    # Caso 2: Grafo Complesso con Branch
+    print("\n--- TEST 2: Grafo con Branch (più complesso) ---")
     gen_rat = "Because the sun is a star, it emits light."
     ref_rat = "Since the sun is classified as a star, it produces light energy."
     
@@ -138,8 +203,19 @@ if __name__ == "__main__":
         target_ans=ref_a,
         generated_rat=gen_rat,
         target_rat=ref_rat,
-        time_taken=1.2
+        num_nodes=5, num_edges=7  # Grafo con cicli e branch
     )
-    print(f"Gen Rat: '{gen_rat}' \nRef Rat: '{ref_rat}'")
+    print(f"Grafo: 5 nodi, 7 archi -> CC = {res2['details']['cyclomatic_complexity']}")
     print(f"Loss: {res2['loss']}")
     print(f"Details: {res2['details']}")
+    
+    # Caso 3: Grafo Molto Complesso
+    print("\n--- TEST 3: Grafo Molto Complesso ---")
+    res3 = calculator.compute(
+        generated_ans=gen_a, 
+        target_ans=ref_a,
+        num_nodes=10, num_edges=20  # Grafo molto complesso
+    )
+    print(f"Grafo: 10 nodi, 20 archi -> CC = {res3['details']['cyclomatic_complexity']}")
+    print(f"Loss: {res3['loss']}")
+    print(f"Details: {res3['details']}")
