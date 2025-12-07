@@ -3,8 +3,9 @@ from Filippo.Connection import Connection
 
 class AgentGenome:
     def __init__(self):
-        self.nodes = {} # dict of node_id: PromptNode    
-        self.connections = [] # list of Connection objects
+        self.family_id = None  # Optional: to track lineage
+        self.nodes: dict[str, PromptNode] = {} # dict of node_id: PromptNode    
+        self.connections: list[Connection] = [] # list of Connection objects
         self.start_node_id = None 
         self.end_node_id = None
         self.fitness = None  

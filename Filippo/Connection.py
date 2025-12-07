@@ -1,4 +1,7 @@
 import hashlib
+import random
+
+from Filippo.Gene import PromptNode
 
 # Generates a unique innovation hash for a connection between two nodes (used as id for connections)
 def generate_connection_hash(start_innovation_number, end_innovation_number):
@@ -7,9 +10,9 @@ def generate_connection_hash(start_innovation_number, end_innovation_number):
 
 class Connection:
     def __init__(self, input_node_in, output_node_in, innovation_number=None, enabled=True):
-        self.in_node = input_node_in
-        self.out_node = output_node_in
-        self.enabled = enabled
+        self.in_node: str = input_node_in
+        self.out_node: str = output_node_in
+        self.enabled: bool = enabled
         
         if innovation_number is None:
             self.innovation_number = generate_connection_hash(input_node_in, output_node_in)

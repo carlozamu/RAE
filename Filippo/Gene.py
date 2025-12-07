@@ -66,7 +66,7 @@ class PromptNode:
         Creates a clone of the node WITH THE SAME ID.
         Essential for crossover/reproduction.
         """
-        new_node = PromptNode(self.name, self.instruction, node_id=self.id, innovation_number=self.innovation_number)
+        new_node = PromptNode(self.name, self.instruction, node_id=str(uuid.uuid4()), innovation_number=self.innovation_number)
         new_node.embedding = self.embedding.copy()
         return new_node
   
