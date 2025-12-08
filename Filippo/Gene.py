@@ -1,72 +1,31 @@
 import uuid
 
-# EmbeddingEngine is a singleton class to manage text embeddings
-class EmbeddingEngine:
-    _instance = None
-    
-    # this method ensures only one instance of the embedding model is created
-    @classmethod
-    def get_instance(cls):
-        if cls._instance is None:
-            from sentence_transformers import SentenceTransformer
-            cls._instance = SentenceTransformer('all-MiniLM-L6-v2')
-        return cls._instance
-
-    # this method computes the embedding for a given text
-    @staticmethod
-    def get_embedding(text):
-        model = EmbeddingEngine.get_instance()
-        # FIX: Convert numpy array to list for easier serialization/storage
-        return model.encode(text).tolist() 
-
-# PromptNode represents a node in the architecture
 class PromptNode:
     """
-    This class represents a node in the architecture.
+    Represents a node in the reasoning chain.
     """
-    def __init__(self, name: str, instruction: str, node_id=None, innovation_number:int=None):
+    def __init__(self, name: str, instruction: str, embedding=None, node_id=None, innovation_number=None):
         # 1. Identity
         self.id = node_id if node_id is not None else str(uuid.uuid4())
-
-        # 2. Innovation Number
         self.innovation_number = innovation_number if innovation_number is not None else self.id
         
-        # 3. The "DNA"
-        # the name of the node, is intended to briefly represent the prompt main task 
-        #for easy identification for debugging and for the LLm that will need to perform action on them
+        # 2. Structure & DNA
+        # We removed 'type' as requested, relying on Genome start/end pointers
         self.name = name 
-        self._instruction = instruction 
+        self.instruction = instruction # Just a plain variable now
         
-        # 4. Speciation Data
-        self.embedding = [] # embedding vector for the prompt instruction
-        self._update_embedding() 
+        # 3. Speciation Data
+        self.embedding = embedding if embedding is not None else []
 
-    @property
-    def instruction(self):
-        return self._instruction
-
-    # handles change in instruction and updates embedding accordingly
-    @instruction.setter
-    def instruction(self, new_instruction):
-        if new_instruction != self._instruction:
-            self._instruction = new_instruction
-            self._update_embedding()
-
-    # function to update the embedding of a prompt node when the instruction changes
-    def _update_embedding(self):
-        try:
-            self.embedding = EmbeddingEngine.get_embedding(self._instruction)
-        except Exception as e:
-            print(f"Warning: Could not compute embedding. {e}")
-            self.embedding = []
-
-    # function to create a clone of the node
     def copy(self):
         """
-        Creates a clone of the node WITH THE SAME ID.
-        Essential for crossover/reproduction.
+        Creates a deep clone with a NEW ID (default behavior for mutation).
         """
-        new_node = PromptNode(self.name, self.instruction, node_id=str(uuid.uuid4()), innovation_number=self.innovation_number)
-        new_node.embedding = self.embedding.copy()
-        return new_node
-  
+        return PromptNode(
+            name=self.name, 
+            instruction=self.instruction, 
+            # We copy the list to ensure the new node has its own memory space
+            embedding=self.embedding.copy() if isinstance(self.embedding, list) else [],
+            node_id=str(uuid.uuid4()), 
+            innovation_number=self.innovation_number
+        )

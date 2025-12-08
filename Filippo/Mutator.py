@@ -1,6 +1,9 @@
 import random
 import copy
-from Filippo.AgentGenome import AgentGenome, PromptNode, Connection, LM_Object
+from AgentGenome import AgentGenome
+from Gene import PromptNode
+from Connection import Connection
+from LLM import LLM
 
 class MutType:
     # Architectural (Global Topology)
@@ -57,7 +60,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         }
     }
 
-    def __init__(self, breeder_llm_client: LM_Object, default_config=None):
+    def __init__(self, breeder_llm_client: LLM, default_config=None):
         """
         :param breeder_llm_client: Wrapper for the LLM API.
         :param default_config: Optional dict to override DEFAULT_CONFIG permanently.
@@ -70,7 +73,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             self._recursive_update(self.baseline_config, default_config)
 
     # ------- Helpers Methods -------
-    def _recursive_update(self, base, update):
+    def _recursive_update(self, base: dict, update: dict):
         """Recursively merges dictionary updates."""
         for k, v in update.items():
             if isinstance(v, dict) and k in base:
@@ -78,7 +81,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             else:
                 base[k] = v
 
-    def _build_cdf(self, probabilities):
+    def _build_cdf(self, probabilities: dict):
         """Normalizes probabilities into a Cumulative Distribution Function."""
         cdf = {}
         cumulative = 0.0
@@ -91,7 +94,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             cdf[k] = cumulative
         return cdf
 
-    def _pick_from_cdf(self, cdf):
+    def _pick_from_cdf(self, cdf: dict):
         """Randomly selects a key based on the CDF."""
         if not cdf: return None
         r = random.random()
@@ -129,7 +132,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         return ancestors
 
     # --- Architectural Mutation Handlers ---
-    def _handle_add_node(self, genome: AgentGenome):
+    async def _handle_add_node(self, genome: AgentGenome):
         """
         Adds a new node by splitting an existing connection.
         """
@@ -144,7 +147,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         out_node = genome.nodes[connection.out_node]
 
         # create a new node and insert it between in_node and out_node of the chosen connection
-        new_node: PromptNode = self.generate_new_node(in_node.name, in_node.instruction, out_node.name, out_node.instruction, self.llm)
+        new_node: PromptNode = await self._generate_new_node(in_node.name, in_node.instruction, out_node.name, out_node.instruction)
         genome.add_node(new_node)
         # disable the chosen connection
         connection.enabled = False
@@ -298,7 +301,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             print("Global: No removable connections found (all are critical bridges).")
 
     # ------- Main Mutation Logic -------
-    def mutate(self, genome: AgentGenome, runtime_config=None) -> AgentGenome:
+    async def mutate(self, genome: AgentGenome, runtime_config=None) -> AgentGenome:
         """
         Main entry point. Returns a mutated CLONE of the genome.
         
@@ -327,20 +330,20 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         if random.random() < p_arch_event:
             mutation_type = self._pick_from_cdf(arch_cdf)
             if mutation_type:
-                self._apply_global_mutation(mutated_genome, mutation_type)
+                await self._apply_global_mutation(mutated_genome, mutation_type)
 
         # 5. Gene Level Mutations (Per Node Check)
-        self._apply_gene_mutations(mutated_genome, p_mutate_node, gene_cdf)
+        await self._apply_gene_mutations(mutated_genome, p_mutate_node, gene_cdf)
 
         return mutated_genome
 
     # --- Internal Logic ---
-    def _apply_global_mutation(self, genome: AgentGenome, mutation_type: MutType):
+    async def _apply_global_mutation(self, genome: AgentGenome, mutation_type: MutType):
         """Dispatches architectural mutations."""
         print(f"Applying Global Mutation: {mutation_type}")
         
         if mutation_type == MutType.ARCH_ADD_NODE:
-            self._handle_add_node(genome)
+            await self._handle_add_node(genome)
         elif mutation_type == MutType.ARCH_REMOVE_NODE:
             self._handle_remove_node(genome)
         elif mutation_type == MutType.ARCH_ADD_CONN:
@@ -348,7 +351,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         elif mutation_type == MutType.ARCH_REMOVE_CONN:
             self._handle_remove_connection(genome)
      
-    def _apply_gene_mutations(self, genome: AgentGenome, p_mutate, gene_cdf):
+    async def _apply_gene_mutations(self, genome: AgentGenome, p_mutate, gene_cdf):
         """Iterates over all nodes and applies mutations based on probability."""
         
         # CRITICAL: Snapshot values because _handle_split adds new nodes to the dict
@@ -362,17 +365,17 @@ mutator = Mutator(breeder_llm, config=tuning_config)
                 mut_type = self._pick_from_cdf(gene_cdf)
 
                 if mut_type == MutType.GENE_SPLIT:
-                    self._handle_split(genome, node)
+                    await self._handle_split(genome, node)
                 elif mut_type == MutType.GENE_EXPAND:
-                    self._handle_content_mutation(node, "expand")
+                    await self._handle_content_mutation(genome.nodes[node], "expand")
                 elif mut_type == MutType.GENE_SIMPLIFY:
-                    self._handle_content_mutation(node, "simplify")
+                    await self._handle_content_mutation(genome.nodes[node], "simplify")
                 elif mut_type == MutType.GENE_REFORMULATE:
-                    self._handle_content_mutation(node, "reformulate")
+                    await self._handle_content_mutation(genome.nodes[node], "reformulate")
 
     # --- Specific Mutation Handlers ---
 
-    def _handle_split(self, genome: AgentGenome, target_node: str):
+    async def _handle_split(self, genome: AgentGenome, target_node: str):
         """
         Hybrid Mutation: Splits one node into two sequential nodes.
         Strategy: Cell Division (Preserve A, Create B, Link A->B)
@@ -380,16 +383,18 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         print(f"Splitting node: {genome.nodes[target_node].name}")
         
         # 1. Ask LLM to split content
-        name1, prompt1, name2,prompt2 = self.split_instructions(genome.nodes[target_node].instruction, genome.nodes[target_node].name, self.llm)
+        name1, prompt1, name2, prompt2 = await self._split_instructions(genome.nodes[target_node].instruction, genome.nodes[target_node].name)
 
         # 2. Modify Original Node (A)
         # We keep the ID and Incoming Connections intact.
         genome.nodes[target_node].instruction = prompt1
         genome.nodes[target_node].name = name1
+        genome.nodes[target_node].embedding = self.llm.get_embedding(prompt1)
         
         new_gene = genome.nodes[target_node].copy()  # Copy other attributes like type, embedding, etc.
         new_gene.name = name2
         new_gene.instruction = prompt2
+        new_gene.embedding = self.llm.get_embedding(prompt2)
 
         genome.add_node(new_gene)
 
@@ -421,78 +426,190 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         for out_id in conns_to_create:
             genome.add_connection(new_gene.id, out_id)
 
-    def _handle_content_mutation(self, node: PromptNode, style):
-        """
-        Handles Expand, Simplify, and Reformulate using the LLM. Changes only the instruction text.
-        """
-        print(f"Mutating Content ({style}): {node.name}")
+    async def _handle_content_mutation(self, node: PromptNode, style: str):
+        # Calculate a safe max_token limit based on input length
+        # (Approx 1 token ~= 4 chars). We allow +50% growth max.
+        current_len = len(node.instruction)
+        safe_max_tokens = int((current_len / 3) * 1.5) + 64
 
-        expand_prompt = f"Expand the following instruction to provide more detail and depth:\n\n{node.instruction}"
-        simplify_prompt = f"Simplify the following instruction to make it clearer and more concise:\n\n{node.instruction}"
-        reformulate_prompt = f"Reformulate the following instruction using different wording while preserving its meaning:\n\n{node.instruction}"
+        print(f"Applying {style} mutation to node: {node.name}\nOriginal: {node.instruction}")
+
+        expand_prompt = f"""Task: Expansion.
+Rewrite the instruction to be more detailed by breaking it down into specific, actionable steps.
+
+### Examples
+
+Original: Read the user input csv file.
+Detailed Version: Open the csv file at the specified path, then parse the rows to extract column headers and values.
+
+Original: Extract the 'price' column and calculate mean.
+Detailed Version: Select the 'price' column from the dataframe, convert values to numeric, and compute the arithmetic average.
+
+Original: Decompose the problem.
+Detailed Version: Analyze the main objective, break it down into a series of atomic sub-tasks, and solve them sequentially.
+
+### Current Task
+Original: {node.instruction}
+"""
+        expand_primer = "Detailed Version:"
+
+        simplify_prompt = f"""Task: Simplification.
+Compress the instruction into a single, concise high-level goal. Remove implementation details.
+
+### Examples
+
+Original: Open the csv file at the specified path, then parse the rows to extract column headers and values.
+Simplified Version: Read the CSV file.
+
+Original: Select the 'price' column from the dataframe, convert values to numeric, and compute the arithmetic average.
+Simplified Version: Calculate the average price.
+
+Original: Analyze the main objective, break it down into a series of atomic sub-tasks, and solve them sequentially.
+Simplified Version: Decompose the problem.
+
+### Current Task
+Original: {node.instruction}
+"""
+        simplify_primer = "Simplified Version:"
+
+        reformulate_prompt = f"""Task: Paraphrasing.
+Rewrite the instruction using different vocabulary and sentence structure while preserving the exact original meaning. Do not add or remove steps.
+
+### Examples
+
+Original: Calculate the sum of the array elements.
+Reformulated Version: Compute the total value of all items in the list.
+
+Original: If the file does not exist, create it.
+Reformulated Version: Generate a new file if one is not found at the location.
+
+Original: Sort the data by date in descending order.
+Reformulated Version: Order the dataset from newest to oldest based on the date.
+
+### Current Task
+Original: {node.instruction}
+"""
+        reformulate_primer = "Reformulated Version:"
+
+        # Select the prompt
+        if style == "expand":
+            prompt = expand_prompt
+            primer = expand_primer
+        elif style == "simplify":
+            prompt = simplify_prompt
+            primer = simplify_primer
+        else:
+            prompt = reformulate_prompt
+            primer = reformulate_primer
+
+        response: str = await self.llm.generate_text(prompt, max_tokens=safe_max_tokens, temperature=0.2, primer=primer)
         
-        match style:
-            case "expand":
-                prompt = expand_prompt
-            case "simplify":
-                prompt = simplify_prompt
-            case "reformulate":
-                prompt = reformulate_prompt
+        if response and len(response.strip()) > 5:
+            print(f"New {style} Instruction: \n{response}\n\n")
+            node.instruction = response.strip()
+            node.embedding = self.llm.get_embedding(response)
+        else:
+            print(f"Failed to generate new instruction for {node.name}")
 
-        new_instruction: str = self.llm.generate_text(prompt)
-        
-        if new_instruction and new_instruction.strip():
-            # The setter in PromptNode automatically updates the embedding!
-            node.instruction = new_instruction
-
-    def split_instructions(original_instruction: str, original_name: str, llm: LM_Object) -> tuple[str, str, str, str]:
+    async def _generate_new_node(self, name1: str, inst1: str, name2: str, inst2: str) -> PromptNode:
         """
-        Uses the LLM to split an instruction into two parts.
-        Returns: (prompt1, prompt2, name1, name2)
+        Asks for a bridging step.
+        Returns: (name, instruction)
         """
-        prompt = f"""Split the following instruction into two sequential parts, each with a distinct set of tasks. Provide the two new instructions along with concise names that should represent the purpose of each part.\n\n
-    Original Instruction:\n{original_instruction}\n\n
-    Format your response exactly as:\n
-    Name1: <name for part 1>\n
-    Instruction1: <instruction for part 1>\n
-    Name2: <name for part 2>\n
-    Instruction2: <instruction for part 2>"""
-        
-        response: str = llm.generate_text(prompt)
+        print(f"Applying bridge mutation to nodes: {name1} -> {name2},\nOriginal Instructions: \n1:{inst1}\n2:{inst2}")
+        prompt = f"""Task: Create a missing intermediate step that logically connects Step A and Step C.
+Format: Name: <name> | Instr: <instruction>
 
-        if not response:
-            print("Warning: LLM failed to split instruction. Returning original.")
-            return original_name, original_instruction, original_name, original_instruction
-        
-        # Parse response
-        name1 = response.split("Name1:")[1].split("Instruction1:")[0]
-        instruction1 = response.split("Instruction1:")[1].split("Name2:")[0]
-        name2 = response.split("Name2:")[1].split("Instruction2:")[0]
-        instruction2 = response.split("Instruction2:")[1]
-        
-        return instruction1, instruction2, name1, name2
+### Examples
 
-    def generate_new_node(name1: str, instruction1: str, name2: str, instruction2: str, llm: LM_Object) -> PromptNode:
+[Step A] Name: Get Text | Instr: Extract the raw text from the input source.
+[Step C] Name: Summarize | Instr: Write a one-sentence summary of the content.
+[Step B] Name: Clean Text | Instr: Remove special characters and normalize the whitespace in the text.
+
+[Step A] Name: Plan Course | Instr: Outline the high-level goals for a history course.
+[Step C] Name: Create Exam | Instr: Write a final exam testing the students' knowledge.
+[Step B] Name: Create Lessons | Instr: Develop detailed lesson plans and lectures covering the course goals.
+
+[Step A] Name: Clean Data | Instr: Remove duplicates and outliers from the dataset.
+[Step C] Name: Create Report | Instr: Generate a comprehensive report summarizing the findings.
+[Step B] Name: Analyze Data | Instr: Analyze the dataset for patterns and insights.
+
+### Current Task
+[Step A] Name: {name1} | Instr: {inst1}
+[Step C] Name: {name2} | Instr: {inst2}
+"""
+        primer = "[Step B] Name:"
+        # We prime the model with "Name:" so it completes the rest
+        response: str = await self.llm.generate_text(prompt, max_tokens=128, temperature=0.2, primer=primer)
+        print(f"New Node:\nName:{response}\n\n")
+        
+        # Robust Parsing
+        try:
+            # We prepend "Name:" because the model completes it
+            full_text = "Name:" + response 
+            name = full_text.split("Name:")[1].split("| Instr:")[0].strip()
+            print(f"Name: {name}")
+            instruction = full_text.split("Instr:")[1].strip()
+            print(f"Instruction: {instruction}")
+            embedding = self.llm.get_embedding(instruction)
+            return PromptNode(name, instruction, embedding=embedding)
+        except:
+            return PromptNode("Bridge_Step", "Process the data from the previous step and prepare it for the next.", embedding=self.llm.get_embedding(instruction))
+
+    async def _split_instructions(self, original_instruction: str, original_name: str) -> tuple[str, str, str, str]:
         """
-        Generates a new PromptNode using the LLM.
+        Forces strict splitting format.
+
+        Returns: (name1, prompt1, name2, prompt2)
         """
-        prompt = f"""A reasoning agent is composed of a set of steps, each defined by an instruction.
-    Given the following sequential steps, create a new step that can logically be performed in between these two steps.
-    Step 1 Name: {name1}
-    Instructions Step 1: {instruction1}
-    Step 2 Name: {name2}
-    Instructions Step 2: {instruction2}
+        print(f"\nApplying split mutation to instruction:\n {original_instruction}\n")
+        prompt = f"""Task: Split the Original Instruction into two sequential, atomic steps (Part 1 then Part 2).
+Format:
+1. Name: <name> | Instr: <instruction>
+2. Name: <name> | Instr: <instruction>
 
-    You must provide a concise name for the new step and a clear instructions to be passed to the LLM as prompt.
-    Format your response as follows:
-    New Step Name: <name>
-    Instructions: <instructions>"""
+### Examples
 
-        response: str = llm.generate_text(prompt)
+Original Name: Mean Computation
+Original Instr: Extract the 'price' column and calculate the mean value.
+1. Name: Extract Column | Instr: Select the 'price' column from the dataset.
+2. Name: Calculate Mean | Instr: Compute the arithmetic average of the selected values.
 
-        # Parse the response to extract the new node name and instruction
-        node_name = response.split("New Step Name:")[1].split("Instructions:")[0].strip()
-        instruction = response.split("Instructions:")[1].strip()
+Original Name: Summarize
+Original Instr: Read the text and produce a concise summary.
+1. Name: Read Text | Instr: Parse the input text to understand the main points.
+2. Name: Write Summary | Instr: Generate a concise summary based on the parsed text.
+
+### Current Task
+Original Name: {original_name}
+Original Instr: {original_instruction}
+"""
+        primer = "1. Name:"
         
-        new_node = PromptNode(node_type="generic", name=node_name, instruction=instruction)
-        return new_node
+        response: str = await self.llm.generate_text(prompt, max_tokens=512, temperature=0.2, primer=primer)
+        print(f"Split Instructions:\n{response}\n\n")
+        
+        try:
+            # Parsing logic for "1. Name: ... | Instr: ..."
+            full_text = "1. Name:" + response
+            lines = full_text.splitlines()
+            
+            # Extract Line 1
+            part1 = lines[0].split("| Instr:")
+            n1 = part1[0].replace("1. Name:", "").strip()
+            i1 = part1[1].strip()
+            
+            # Extract Line 2 (Find the line starting with "2.")
+            line2 = next(l for l in lines if l.strip().startswith("2."))
+            part2 = line2.split("| Instr:")
+            n2 = part2[0].replace("2. Name:", "").strip()
+            i2 = part2[1].strip()
+
+            print(f"Name 1: {n1}")
+            print(f"Instruction 1: {i1}")
+            print(f"Name 2: {n2}")
+            print(f"Instruction 2: {i2}")   
+            
+            return n1, i1, n2, i2
+        except:
+            return original_name, original_instruction, "Refine results", "Refine and improve results"

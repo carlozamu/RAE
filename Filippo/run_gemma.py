@@ -38,24 +38,10 @@ Instructions: Using the finalized dataset, generate a bar chart comparing monthl
 [Step 2]
 Name:"""
 
-prompt_2 = """You are a pipeline architect. Fill in the missing [Step 2].
-Constraint: Step 2 must bridge the gap between Step 1 and Step 3. No fancy formattinglike bold or italics.
-
-[Step 1]
-Name: Email Ingestion
-Instructions: Retrieve unread emails from the customer support inbox and strip out HTML signatures and headers.
-
-[Step 3]
-Name: Ticket Routing System
-Instructions: Based on the identified category and urgency level, assign the structured ticket object to the correct support team queue.
-
-[Step 2]
-Name:"""
-
 # --- 4. Prepare Inputs ---
 # We use the Chat Template because Gemma-1B-IT is trained on it.
 # It is much smarter when we use the correct template than raw text.
-messages = [{"role": "user", "content": prompt_2}]
+messages = [{"role": "user", "content": prompt_1}]
 
 encodings = tokenizer.apply_chat_template(
     messages, 

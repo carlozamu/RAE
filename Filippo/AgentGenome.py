@@ -1,5 +1,5 @@
-from Filippo.Gene import PromptNode
-from Filippo.Connection import Connection
+from Gene import PromptNode
+from Connection import Connection
 
 class AgentGenome:
     def __init__(self):
@@ -24,7 +24,7 @@ class AgentGenome:
         new_conn = Connection(in_node_id, out_node_id)
         self.connections.append(new_conn)
 
-    def get_linear_chain(self):
+    def get_linear_chain(self) -> list[PromptNode]:
         """
         Retrieves the linear chain of nodes starting from start_node_id and following enabled connections.
         It's needed to practically execute the agent's prompt sequence.
