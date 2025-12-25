@@ -1,4 +1,5 @@
 import hashlib
+#TODO: maybe move inside the gene package?
 
 # Generates a unique innovation hash for a connection between two nodes (used as id for connections)
 def generate_connection_hash(start_innovation_number, end_innovation_number):
@@ -17,6 +18,7 @@ class Connection:
             self.innovation_number = innovation_number
             
     def copy(self):
+        #TODO: is it needed or can we just use the deepcopy method inherited from the object class?
         """Clone the connection gene"""
         return Connection(
             self.in_node, 

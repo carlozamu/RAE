@@ -4,7 +4,8 @@ from Connection.Connection import Connection
 class AgentGenome:
     def __init__(self):
         self.family_id = None  # Optional: to track lineage
-        self.nodes: dict[str, PromptNode] = {} # dict of node_id: PromptNode    
+        self.nodes: dict[str, PromptNode] = {} # dict of node_id: PromptNode
+        #TODO: Can connections be a dict too with innovation number as key?
         self.connections: list[Connection] = [] # list of Connection objects
         self.start_node_id = None 
         self.end_node_id = None
@@ -12,6 +13,7 @@ class AgentGenome:
         self.adjusted_fitness = None 
 
     def add_node(self, node: PromptNode):
+        #TODO: if two similar individuals add a node in the same position, are they going to get the same id and innovation number on the same connection?
         self.nodes[node.id] = node
 
     def add_connection(self, in_node_id, out_node_id):
@@ -19,7 +21,9 @@ class AgentGenome:
         for conn in self.connections:
             if conn.in_node == in_node_id and conn.out_node == out_node_id:
                 return # Connection already exists, do nothing
-        
+
+        #TODO: if i create the same connection in two different istances will the innovation number be the same?
+
         # Create new connection (Innovation number generated automatically by Connection class)
         new_conn = Connection(in_node_id, out_node_id)
         self.connections.append(new_conn)
