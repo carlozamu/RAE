@@ -9,6 +9,14 @@ class EvolutionManager:
         self.num_parents = num_parents
 
     def create_new_generation(self):
+        """
+        Creates a new generation of individuals based on the fitness of the current generation.
+        First computes average fitness for each species and across whole population.
+        Then allocates number of offspring for each species based on their average fitness compared to population average fitness.
+        Finally creates offspring for each species.
+        
+        :param self: Description
+        """
         #TODO: Is there a better way to calculate total average fitness?
         total_fitness = 0
         total_individuals = 0
@@ -25,6 +33,9 @@ class EvolutionManager:
         pass
 
     def get_latest_generation(self):
+        """
+        Retrieves all members from the latest generation across all species.
+        """
         members = []
         for species in self.species:
             if species.last_generation_index() == self.current_generation_index:
@@ -32,6 +43,9 @@ class EvolutionManager:
         return None
 
     def create_offspring(self, species):
+        """
+        Creates the new generation offspring for a given species.
+        """
         parent_pool = species.get_top_members()
         healthy_child = False
         child = None
@@ -56,5 +70,7 @@ class EvolutionManager:
 
     @staticmethod
     def _select_parents(parent_pool, num_parents):
-        """randomly select num_parents elements from the parent_pool list"""
+        """
+        Randomly select num_parents elements from the parent_pool list
+        """
         return random.sample(parent_pool, num_parents)

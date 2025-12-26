@@ -7,6 +7,15 @@ from Edoardo.Genome.AgentGenome import AgentGenome
 class Crossover:
     @staticmethod
     def create_offspring(parent1_genome: AgentGenome, parent2_genome: AgentGenome) -> AgentGenome:
+        """
+        Given two parent genomes, creates an offspring genome by combining their nodes and connections.
+        For each node and connection present in either parent, the offspring randomly inherits it from one of the parents.
+        If a node or connection is only present in one parent, it is inherited from that parent.
+        
+        :param parent1_genome: AgentGenome
+        :param parent2_genome: AgentGenome
+        :return: AgentGenome
+        """
         offspring_genome = AgentGenome()
         node_list = list(parent1_genome.nodes.keys()) + list(parent2_genome.nodes.keys())
         node_list = list(set(node_list))
