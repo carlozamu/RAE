@@ -1,4 +1,3 @@
-from typing import Any
 from Edoardo.Phenotype.phenotype import Phenotype
 from fitness_function import UnifiedFitnessCalculator
 

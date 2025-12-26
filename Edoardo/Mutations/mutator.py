@@ -1,8 +1,8 @@
 import random
 import copy
-from Genome.AgentGenome import AgentGenome
-from Gene.Gene import PromptNode
-from Connection.Connection import Connection
+from Edoardo.Genome.agent_genome import AgentGenome
+from Edoardo.Gene.gene import PromptNode
+from Edoardo.Gene.connection import Connection
 from Utils.LLM import LLM
 
 class MutType:
@@ -112,7 +112,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         # Optimization: We build this only for the search. 
         # In a larger system, you might cache this on the genome.
         parents_map = {nid: [] for nid in genome.nodes}
-        for conn in genome.connections:
+        for conn in genome.connections.values():
             if conn.enabled:
                 if conn.out_node in parents_map:
                     parents_map[conn.out_node].append(conn.in_node)
@@ -139,7 +139,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         if not genome.connections: return
 
         # choose a radnom connection to split
-        connection = random.choice(genome.connections)
+        connection = random.choice(list(genome.connections.values()))
         if not connection: return
 
         # get name and instructions of the in_node and out_node
@@ -164,7 +164,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         incoming_node_ids = []
         outgoing_node_ids = []
         
-        for conn in genome.connections:
+        for conn in genome.connections.values():
             if not conn.enabled: continue
             
             if conn.out_node == node_id:
@@ -228,7 +228,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             
             # B. Identify existing connections (Duplicates)
             existing_target_ids = set()
-            for conn in genome.connections:
+            for conn in genome.connections.values():
                 if conn.in_node == candidate: # Even disabled ones count to avoid dupes
                     existing_target_ids.add(conn.out_node)
             
@@ -267,7 +267,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         if not genome.connections: return
         
         # 0. If the graph is already minimal skip
-        active_connections = [c for c in genome.connections if c.enabled]
+        active_connections = [c for c in genome.connections.values() if c.enabled]
         if len(active_connections) < len(genome.nodes):
             return
 
@@ -324,7 +324,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         gene_cdf = self._build_cdf(current_config["gene_probs"])
 
         # 3. Create Offspring (Deep Copy)
-        mutated_genome = genome.copy()
+        mutated_genome = copy.deepcopy(genome)
 
         # 4. Global Architectural Mutation (Single Event)
         if random.random() < p_arch_event:
@@ -403,7 +403,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         conns_to_disable: list[Connection] = []
         conns_to_create: list[str] = []
 
-        for conn in genome.connections:
+        for conn in genome.connections.values():
             if not conn.enabled: continue
             
             # If connection goes OUT from A -> [Next]

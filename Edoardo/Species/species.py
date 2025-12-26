@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional
 
 from Edoardo.Fitness.fitness import Fitness
-from Edoardo.Genome.AgentGenome import AgentGenome
+from Edoardo.Genome.agent_genome import AgentGenome
 from Edoardo.Phenotype.phenotype import Phenotype
 
 class Species:
@@ -13,7 +13,7 @@ class Species:
     compatibility_threshold = 3.0  # Threshold for species compatibility
 
     def __init__(self, members: List[Phenotype], generation: int = 0):
-        self.id = None # Todo: decide how to assign species id
+        self.id = None # TODO: decide how to assign species id
         #TODO: check if I'm creating circular dependencies
         self.generations = []
         self.generation_offset = generation

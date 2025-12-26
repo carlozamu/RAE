@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 import numpy as np
-from Edoardo.Genome.AgentGenome import AgentGenome
+from Edoardo.Genome.agent_genome import AgentGenome
 
 
 class Crossover:

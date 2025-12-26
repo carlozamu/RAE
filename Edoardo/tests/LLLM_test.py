@@ -1,8 +1,9 @@
 import asyncio
+from copy import deepcopy
 from Utils.LLM import LLM
-from Genome.AgentGenome import AgentGenome
-from Gene.Gene import PromptNode
-from Mutations.Mutator import Mutator, MutType
+from Edoardo.Genome.agent_genome import AgentGenome
+from Edoardo.Gene.gene import PromptNode
+from Edoardo.Mutations.mutator import Mutator, MutType
 
 async def test_mutator_logic():
     print("\n=== 🧬 STARTING MUTATOR INTEGRATION TEST ===\n")
@@ -40,7 +41,7 @@ async def test_mutator_logic():
 
     # --- HELPER TO RESET GENOME ---
     def get_fresh_genome():
-        return genome.copy()
+        return deepcopy(genome)
 
     # 3. Test EXPAND (Specific Node)
     print("\n[3] Testing GENE_EXPAND (Targeting 'Analyze')...")

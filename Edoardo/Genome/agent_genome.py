@@ -1,5 +1,5 @@
-from Gene.Gene import PromptNode
-from Connection.Connection import Connection
+from Edoardo.Gene.gene import PromptNode
+from Edoardo.Gene.connection import Connection
 
 class AgentGenome:
     def __init__(self):

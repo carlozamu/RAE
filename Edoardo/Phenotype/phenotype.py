@@ -1,6 +1,7 @@
-from Edoardo.Genome.genome import Genome
-
 """Working individual composed by many traits, created from a genotype"""
+from Edoardo.Genome.agent_genome import AgentGenome
+
+
 class Phenotype:
-    def __init__(self, genome: Genome):
+    def __init__(self, genome: AgentGenome):
         pass
