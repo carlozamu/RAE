@@ -21,18 +21,21 @@ class Crossover:
                     offspring_genome.add_node(deepcopy(parent1_genome.nodes[node_id]))
                 except KeyError:
                     offspring_genome.add_node(deepcopy(parent2_genome.nodes[node_id]))
-        edge_list = list(c.innovation_number for c in parent1_genome.connections) + list(c.innovation_number for c in parent2_genome.connections)
+        edge_list = list(c for c in parent1_genome.connections.keys()) + list(c for c in parent2_genome.connections.keys())
         edge_list = list(set(edge_list))  # Remove duplicates
-        #TODO: fix this part
         for edge_id in edge_list:
-            if edge_id in parent1_genome.connections and edge_id in parent2_genome.connections:
+            if edge_id in parent1_genome.connections.keys() and edge_id in parent2_genome.connections.keys():
                 if np.random.rand() < 0.5:
-                    offspring_genome.add_connection(deepcopy(parent1_genome.connections[edge_id]))
+                    inherited_connection = deepcopy(parent1_genome.connections[edge_id])
+                    offspring_genome.add_connection(inherited_connection.in_node, inherited_connection.out_node)
                 else:
-                    offspring_genome.add_connection(deepcopy(parent2_genome.connections[edge_id]))
+                    inherited_connection = deepcopy(parent2_genome.connections[edge_id])
+                    offspring_genome.add_connection(inherited_connection.in_node, inherited_connection.out_node)
             else:
                 try:
-                    offspring_genome.add_connection(deepcopy(parent1_genome.connections[edge_id]))
+                    inherited_connection = deepcopy(parent1_genome.connections[edge_id])
+                    offspring_genome.add_connection(inherited_connection.in_node, inherited_connection.out_node)
                 except KeyError:
-                    offspring_genome.add_connection(deepcopy(parent2_genome.connections[edge_id]))
+                    inherited_connection = deepcopy(parent2_genome.connections[edge_id])
+                    offspring_genome.add_connection(inherited_connection.in_node, inherited_connection.out_node)
         return offspring_genome

@@ -5,8 +5,7 @@ class AgentGenome:
     def __init__(self):
         self.family_id = None  # Optional: to track lineage
         self.nodes: dict[str, PromptNode] = {} # dict of node_id: PromptNode
-        #TODO: Can connections be a dict too with innovation number as key?
-        self.connections: list[Connection] = [] # list of Connection objects
+        self.connections: dict[str, Connection] = {} # dict of innovation_number: Connection
         self.start_node_id = None 
         self.end_node_id = None
         self.fitness = None  
@@ -18,7 +17,7 @@ class AgentGenome:
 
     def add_connection(self, in_node_id, out_node_id):
         # Check for duplicates to prevent multi-edges between same nodes
-        for conn in self.connections:
+        for conn in self.connections.values():
             if conn.in_node == in_node_id and conn.out_node == out_node_id:
                 return # Connection already exists, do nothing
 
@@ -26,7 +25,7 @@ class AgentGenome:
 
         # Create new connection (Innovation number generated automatically by Connection class)
         new_conn = Connection(in_node_id, out_node_id)
-        self.connections.append(new_conn)
+        self.connections[new_conn.innovation_number] = new_conn
 
     def get_linear_chain(self) -> list[PromptNode]:
         """
@@ -48,7 +47,7 @@ class AgentGenome:
             chain.append(curr_node)
             
             next_id = None
-            for conn in self.connections:
+            for conn in self.connections.values():
                 if conn.in_node == current_node_id and conn.enabled:
                     next_id = conn.out_node
                     break
@@ -63,22 +62,22 @@ class AgentGenome:
 
         return chain
 
-    def copy(self):
-        """
-        Deep copies the entire genome.
-        This is used when selecting a parent to produce a child.
-        """
-        new_genome = AgentGenome()
-        new_genome.start_node_id = self.start_node_id
-        new_genome.fitness = self.fitness
+    # def copy(self):
+    #     """
+    #     Deep copies the entire genome.
+    #     This is used when selecting a parent to produce a child.
+    #     """
+    #     new_genome = AgentGenome()
+    #     new_genome.start_node_id = self.start_node_id
+    #     new_genome.fitness = self.fitness
         
-        # Copy all nodes (preserving IDs)
-        for node_id, node in self.nodes.items():
-            new_genome.nodes[node_id] = node.copy()
+    #     # Copy all nodes (preserving IDs)
+    #     for node_id, node in self.nodes.items():
+    #         new_genome.nodes[node_id] = node.copy()
             
-        # Copy all connections
-        for conn in self.connections:
-            new_genome.connections.append(conn.copy())
+    #     # Copy all connections
+    #     for conn in self.connections:
+    #         new_genome.connections.append(conn.copy())
             
-        return new_genome
+    #     return new_genome
     

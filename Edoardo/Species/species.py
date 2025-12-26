@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional
 
 from Edoardo.Fitness.fitness import Fitness
+from Edoardo.Genome.AgentGenome import AgentGenome
 from Edoardo.Phenotype.phenotype import Phenotype
 
 class Species:
@@ -20,11 +21,23 @@ class Species:
         self.generations.append(members)
 
     def belongs_to_species(self, candidate: Phenotype, generation: Optional[int]) -> bool:
+        """
+        Docstring for belongs_to_species
+        
+        :param self: Description
+        :param candidate: Description
+        :type candidate: Phenotype(phenotype needed since fitness will be saveed along with it)
+        :param generation: Description
+        :type generation: Optional[int]
+        :return: Description
+        :rtype: bool
+        """
         generation = generation-self.generation_offset if generation is not None else -1
         population_member = self.generations[generation][0]["member"]
         excess_genes = self._count_excess_genes(population_member, candidate)
         disjoint_genes = self._count_disjoint_genes(population_member, candidate)
         avg_weight_diff = self._average_weight_difference(population_member, candidate)
+        #TODO: change depending on phenotype implementation
         max_number_of_genes = max(len(population_member.nodes), len(candidate.nodes))
         compatibility_distance = (self.c1 * (excess_genes/max_number_of_genes) +
                                   self.c2 * (disjoint_genes/max_number_of_genes) +
