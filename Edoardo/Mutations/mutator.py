@@ -324,7 +324,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         gene_cdf = self._build_cdf(current_config["gene_probs"])
 
         # 3. Create Offspring (Deep Copy)
-        mutated_genome = copy.deepcopy(genome)
+        mutated_genome = genome.copy()
 
         # 4. Global Architectural Mutation (Single Event)
         if random.random() < p_arch_event:

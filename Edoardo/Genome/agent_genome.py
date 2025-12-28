@@ -8,7 +8,7 @@ class AgentGenome:
         self.connections: dict[str, Connection] = {} # dict of innovation_number: Connection
         self.start_node_id = None 
         self.end_node_id = None
-        self.fitness = None  
+        self.fitness = None #TODO: do we need fitness here?
         self.adjusted_fitness = None 
 
     def add_node(self, node: PromptNode):
@@ -62,22 +62,26 @@ class AgentGenome:
 
         return chain
 
-    # def copy(self):
-    #     """
-    #     Deep copies the entire genome.
-    #     This is used when selecting a parent to produce a child.
-    #     """
-    #     new_genome = AgentGenome()
-    #     new_genome.start_node_id = self.start_node_id
-    #     new_genome.fitness = self.fitness
+    def copy(self):
+        """
+        Deep copies the entire genome.
+        This is used when selecting a parent to produce a child.
+        """
+        new_genome = AgentGenome()
+        new_genome.fitness = self.fitness
         
-    #     # Copy all nodes (preserving IDs)
-    #     for node_id, node in self.nodes.items():
-    #         new_genome.nodes[node_id] = node.copy()
+        # Copy all nodes (preserving IDs)
+        for node in self.nodes.values():
+            new_node = node.copy()
+            new_genome.nodes[new_node.id] = new_node
+            if node.id == self.start_node_id:
+                new_genome.start_node_id = new_node.id
+            if node.id == self.end_node_id:
+                new_genome.end_node_id = new_node.id
             
-    #     # Copy all connections
-    #     for conn in self.connections:
-    #         new_genome.connections.append(conn.copy())
+        # Copy all connections
+        for conn in self.connections.values():
+            new_genome.connections[conn.innovation_number] = conn.copy()
             
-    #     return new_genome
+        return new_genome
     

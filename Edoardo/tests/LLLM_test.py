@@ -1,5 +1,4 @@
 import asyncio
-from copy import deepcopy
 from Utils.LLM import LLM
 from Edoardo.Genome.agent_genome import AgentGenome
 from Edoardo.Gene.gene import PromptNode
@@ -41,7 +40,7 @@ async def test_mutator_logic():
 
     # --- HELPER TO RESET GENOME ---
     def get_fresh_genome():
-        return deepcopy(genome)
+        return genome.copy()
 
     # 3. Test EXPAND (Specific Node)
     print("\n[3] Testing GENE_EXPAND (Targeting 'Analyze')...")

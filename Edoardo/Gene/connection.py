@@ -17,7 +17,6 @@ class Connection:
             self.innovation_number = innovation_number
             
     def copy(self):
-        #TODO: is it needed or can we just use the deepcopy method inherited from the object class?
         """Clone the connection gene"""
         return Connection(
             self.in_node, 

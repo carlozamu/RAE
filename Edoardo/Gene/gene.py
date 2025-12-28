@@ -22,7 +22,6 @@ class PromptNode:
         Creates a deep clone with a NEW ID (default behavior for mutation).
         """
         return PromptNode(
-            #TODO: Use deepcopy maybe(copy only does a shallow copy, it might not be enough), as of now the two objects point at the same attributes
             name=self.name, 
             instruction=self.instruction, 
             # We copy the list to ensure the new node has its own memory space
