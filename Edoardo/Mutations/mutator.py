@@ -111,10 +111,10 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         # 1. Build Reverse Adjacency List (Map: Node -> Parents)
         # Optimization: We build this only for the search. 
         # In a larger system, you might cache this on the genome.
-        parents_map = {nid: [] for nid in genome.nodes}
+        parents_map = {nin: [] for nin in genome.nodes.keys()}
         for conn in genome.connections.values():
             if conn.enabled:
-                if conn.out_node in parents_map:
+                if conn.out_node in parents_map.keys():
                     parents_map[conn.out_node].append(conn.in_node)
         
         # 2. Perform BFS backwards from target
@@ -124,10 +124,10 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         while stack:
             current = stack.pop()
             # If we haven't visited this node yet (it's a new ancestor)
-            for parent_id in parents_map.get(current, []):
-                if parent_id not in ancestors:
-                    ancestors.add(parent_id)
-                    stack.append(parent_id)
+            for parent_innovation_numbers in parents_map.get(current, []):
+                if parent_innovation_numbers not in ancestors:
+                    ancestors.add(parent_innovation_numbers)
+                    stack.append(parent_innovation_numbers)
         
         return ancestors
 
@@ -147,54 +147,55 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         out_node = genome.nodes[connection.out_node]
 
         # create a new node and insert it between in_node and out_node of the chosen connection
+        #TODO: why await? what async operations do we have?
         new_node: PromptNode = await self._generate_new_node(in_node.name, in_node.instruction, out_node.name, out_node.instruction)
         genome.add_node(new_node)
         # disable the chosen connection
         connection.enabled = False
         # add two new connections
-        genome.add_connection(connection.in_node, new_node.id)
-        genome.add_connection(new_node.id, connection.out_node)
+        genome.add_connection(connection.in_node, new_node.innovation_number)
+        genome.add_connection(new_node.innovation_number, connection.out_node)
 
     def _handle_remove_node(self, genome: AgentGenome):
         # choose a random node to remove
-        node_id: str = random.choice(list(genome.nodes.keys()))
-        if node_id == genome.start_node_id or node_id == genome.end_node_id:
+        node_innovation_number: str = random.choice(list(genome.nodes.keys()))
+        if node_innovation_number == genome.start_node_innovation_number or node_innovation_number == genome.end_node_innovation_number:
             return # do not remove start or end nodes
         
-        incoming_node_ids = []
-        outgoing_node_ids = []
+        incoming_node_innovation_numbers = []
+        outgoing_node_innovation_numbers = []
         
         for conn in genome.connections.values():
             if not conn.enabled: continue
             
-            if conn.out_node == node_id:
-                incoming_node_ids.append(conn.in_node)
+            if conn.out_node == node_innovation_number:
+                incoming_node_innovation_numbers.append(conn.in_node)
                 conn.enabled = False
-            elif conn.in_node == node_id:
-                outgoing_node_ids.append(conn.out_node)
+            elif conn.in_node == node_innovation_number:
+                outgoing_node_innovation_numbers.append(conn.out_node)
                 conn.enabled = False
         
-        random.shuffle(incoming_node_ids)
-        random.shuffle(outgoing_node_ids)
-
-        if incoming_node_ids and outgoing_node_ids:
+        random.shuffle(incoming_node_innovation_numbers)
+        random.shuffle(outgoing_node_innovation_numbers)
+        #TODO: what if  one of the lists is empty?
+        if incoming_node_innovation_numbers and outgoing_node_innovation_numbers:
             # A. Determine the larger and smaller lists
-            max_len = max(len(incoming_node_ids), len(outgoing_node_ids))
+            max_len = max(len(incoming_node_innovation_numbers), len(outgoing_node_innovation_numbers))
             
             # Loop up to the maximum count to ensure coverage
             for i in range(max_len):
                 # Get input: if i is out of bounds, wrap around (modulo) 
                 # or pick random to handle the "leftovers"
-                in_id = incoming_node_ids[i % len(incoming_node_ids)]
+                in_innovation_number = incoming_node_innovation_numbers[i % len(incoming_node_innovation_numbers)]
                 
                 # Get output: same logic
-                out_id = outgoing_node_ids[i % len(outgoing_node_ids)]
+                out_innovation_number = outgoing_node_innovation_numbers[i % len(outgoing_node_innovation_numbers)]
                 
                 # Add connection
-                genome.add_connection(in_id, out_id)
+                genome.add_connection(in_innovation_number, out_innovation_number)
 
         # 5. Delete the Node
-        del genome.nodes[node_id]
+        genome.nodes.pop(node_innovation_number, None)
 
     def _handle_add_connection(self, genome: AgentGenome):
         """
@@ -210,7 +211,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             return
         # 1. Candidates for Source (A): Any node except END
         # We convert values to a list to pick randomly
-        possible_inputs = [n for n in genome.nodes.keys() if n != genome.end_node_id]
+        possible_inputs = [n for n in genome.nodes.keys() if n != genome.end_node_innovation_number]
 
         # Shuffle to ensure random selection order without bias
         random.shuffle(possible_inputs)
@@ -224,24 +225,24 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             
             # A. Identify invalid targets (Ancestors)
             # If B can reach A, then adding A->B creates a cycle.
-            ancestor_ids = self._get_ancestors(genome, candidate)
+            ancestor_innovation_numbers = self._get_ancestors(genome, candidate)
             
             # B. Identify existing connections (Duplicates)
-            existing_target_ids = set()
+            existing_target_innovation_numbers = set()
             for conn in genome.connections.values():
                 if conn.in_node == candidate: # Even disabled ones count to avoid dupes
-                    existing_target_ids.add(conn.out_node)
+                    existing_target_innovation_numbers.add(conn.out_node)
             
             # C. Filter all nodes to find valid B candidates
             # Valid B = (Not Ancestor) AND (Not Start) AND (Not Self) AND (Not Duplicate)
             candidates_for_b = []
-            for node_id in genome.nodes.keys():
-                if node_id == genome.start_node_id: continue   # Cannot connect to START
-                if node_id == candidate: continue       # No self loops
-                if node_id in ancestor_ids: continue       # No cycles
-                if node_id in existing_target_ids: continue # No duplicates
+            for node_innovation_number in genome.nodes.keys():
+                if node_innovation_number == genome.start_node_innovation_number: continue   # Cannot connect to START
+                if node_innovation_number == candidate: continue       # No self loops
+                if node_innovation_number in ancestor_innovation_numbers: continue       # No cycles
+                if node_innovation_number in existing_target_innovation_numbers: continue # No duplicates
                 
-                candidates_for_b.append(node_id)
+                candidates_for_b.append(node_innovation_number)
             
             if candidates_for_b:
                 source_node = candidate
@@ -250,9 +251,9 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         
         # 2. Execute Mutation if valid pair found
         if source_node and valid_targets:
-            target_id = random.choice(valid_targets)
-            print(f"Global: Adding connection {genome.nodes[source_node].name[:15]} -> {genome.nodes[target_id].name[:15]}")
-            genome.add_connection(source_node, target_id)
+            target_innovation_number = random.choice(valid_targets)
+            print(f"Global: Adding connection {genome.nodes[source_node].name[:15]} -> {genome.nodes[target_innovation_number].name[:15]}")
+            genome.add_connection(source_node, target_innovation_number)
         else:
             print("Global: Graph is fully saturated. No new connections possible.")
             
@@ -392,6 +393,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         genome.nodes[target_node].embedding = self.llm.get_embedding(prompt1)
         
         new_gene = genome.nodes[target_node].copy()  # Copy other attributes like type, embedding, etc.
+        #TODO: here we need to already diffferentiate by innovation number
         new_gene.name = name2
         new_gene.instruction = prompt2
         new_gene.embedding = self.llm.get_embedding(prompt2)
@@ -420,11 +422,11 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             conn.enabled = False
 
         # B. Create the Bridge: A -> B
-        genome.add_connection(target_node, new_gene.id)
+        genome.add_connection(target_node, new_gene.innovation_number)
 
         # C. Create the new outgoing connections from B
-        for out_id in conns_to_create:
-            genome.add_connection(new_gene.id, out_id)
+        for out_innovation_number in conns_to_create:
+            genome.add_connection(new_gene.innovation_number, out_innovation_number)
 
     async def _handle_content_mutation(self, node: PromptNode, style: str):
         # Calculate a safe max_token limit based on input length

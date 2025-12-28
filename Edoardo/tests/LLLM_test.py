@@ -22,12 +22,12 @@ async def test_mutator_logic():
     genome = AgentGenome()
     # IDs: 'start', 'mid', 'end' for easier debugging logic
     start = PromptNode("Start", "Read the user input csv file.", llm.get_embedding("Read input"), node_id="start")
-    genome.start_node_id = start.id
+    genome.start_node_innovation_number = start.id
     
     mid = PromptNode("Analyze", "Extract the column 'price' and calculate mean.", llm.get_embedding("Calculate mean"), node_id="mid")
     
     end = PromptNode("Output", "Format the result as JSON.", llm.get_embedding("Format JSON"), node_id="end")
-    genome.end_node_id = end.id
+    genome.end_node_innovation_number = end.id
     
     genome.add_node(start)
     genome.add_node(mid)

@@ -17,17 +17,17 @@ class Crossover:
         offspring_genome = AgentGenome()
         node_list = list(parent1_genome.nodes.keys()) + list(parent2_genome.nodes.keys())
         node_list = list(set(node_list))
-        for node_id in node_list:
-            if node_id in parent1_genome.nodes and node_id in parent2_genome.nodes:
+        for node_innovation_number in node_list:
+            if node_innovation_number in parent1_genome.nodes and node_innovation_number in parent2_genome.nodes:
                 if np.random.rand() < 0.5:
-                    offspring_genome.add_node(parent1_genome.nodes[node_id].copy())
+                    offspring_genome.add_node(parent1_genome.nodes[node_innovation_number].copy())
                 else:
-                    offspring_genome.add_node(parent2_genome.nodes[node_id].copy())
+                    offspring_genome.add_node(parent2_genome.nodes[node_innovation_number].copy())
             else:
                 try:
-                    offspring_genome.add_node(parent1_genome.nodes[node_id].copy())
+                    offspring_genome.add_node(parent1_genome.nodes[node_innovation_number].copy())
                 except KeyError:
-                    offspring_genome.add_node(parent2_genome.nodes[node_id].copy())
+                    offspring_genome.add_node(parent2_genome.nodes[node_innovation_number].copy())
         edge_list = list(c for c in parent1_genome.connections.keys()) + list(c for c in parent2_genome.connections.keys())
         edge_list = list(set(edge_list))  # Remove duplicates
         for edge_id in edge_list:
