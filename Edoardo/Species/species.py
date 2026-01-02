@@ -16,7 +16,6 @@ class Species:
 
     def __init__(self, members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None):
         self.id = None # TODO: decide how to assign species id
-        #TODO: check if I'm creating circular dependencies
         self.generations = []
         self.generation_offset = generation # It's the index of the first global generation at which this species appears
         self.selection_strategy = selection_strategy
@@ -117,4 +116,7 @@ class Species:
 
     def get_all_members_from_generation(self, generation: Optional[int]) -> List[Phenotype]:
         generation = generation-self.generation_offset if generation is not None else -1
-        return [member["member"] for member in self.generations[generation]]
+        if 0 <= generation < len(self.generations):
+            return [member["member"] for member in self.generations[generation]]
+        else:
+            return []

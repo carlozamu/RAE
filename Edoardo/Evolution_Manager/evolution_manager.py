@@ -54,33 +54,31 @@ class EvolutionManager:
                 new_species_count = int(
                     species.cumulative_fitness(self.current_generation_index) / average_fitness if average_fitness > 0 else species.member_count(
                         self.current_generation_index))
+                if new_species_count > 0:
+                    # Create offspring
+                    offsprings = self.create_offsprings(species, new_species_count)
 
-                # Create offspring
-                offsprings = self.create_offsprings(species, new_species_count)
+                    # Get current generation members for this species
+                    current_members = species.get_all_members_from_generation(self.current_generation_index)
 
-                # Get current generation members for this species
-                current_members = species.generations[self.current_generation_index - species.generation_offset] if (
-                        self.current_generation_index >= species.generation_offset and self.current_generation_index - species.generation_offset < len(
-                    species.generations)) else []
+                    # Convert offspring Phenotypes to dict format
+                    offspring_dicts = [{"member": child, "fitness": Fitness.evaluate(child)} for child in offsprings]
 
-                # Convert offspring Phenotypes to dict format
-                offspring_dicts = [{"member": child, "fitness": Fitness.evaluate(child)} for child in offsprings]
+                    # Determine target size (maintain population size)
+                    target_size = len(offspring_dicts)
 
-                # Determine target size (maintain population size)
-                target_size = len(current_members) if current_members else len(offspring_dicts)
+                    # Select survivors using strategy
+                    selected_individuals_dicts = self.survivor_strategy.select_survivors(
+                        current_population=current_members,
+                        offspring_population=offspring_dicts,
+                        population_size=target_size
+                    )
 
-                # Select survivors using strategy
-                selected_individuals_dicts = self.survivor_strategy.select_survivors(
-                    current_population=current_members,
-                    offspring_population=offspring_dicts,
-                    population_size=target_size
-                )
+                    # Extract members
+                    selected_individuals = [item['member'] for item in selected_individuals_dicts]
 
-                # Extract members
-                selected_individuals = [item['member'] for item in selected_individuals_dicts]
-
-                # Add selected individuals to next generation
-                species.add_members(selected_individuals, generation=self.current_generation_index + 1)
+                    # Add selected individuals to next generation
+                    species.add_members(selected_individuals, generation=self.current_generation_index + 1)
 
         # Advance generation index
         self.current_generation_index += 1
@@ -177,24 +175,21 @@ class EvolutionManager:
             child = None
             while not healthy_child:
                 parents = self.select_parents(species, self.num_parents)
-                if len(parents) < self.num_parents:
-                    break
                 child = Crossover.create_offspring(parents[0].genome, parents[1].genome)
                 # TODO: add mutations
                 new_species = True
                 next_generation = self.current_generation_index + 1
                 for s in self.species:
-                    if s.belongs_to_species(child,
-                                            next_generation) and s != species and s.generation_offset == next_generation:
+                    if s.belongs_to_species(child, self.current_generation_index) and s != species and s.generation_offset == next_generation:
                         healthy_child = True
                         new_species = False
                         s.add_members([child], generation=next_generation)
                         break
-                    if s.belongs_to_species(child, next_generation) and s != species:
+                    if s.belongs_to_species(child, self.current_generation_index) and s != species:
                         healthy_child = False
                         new_species = False
                         break
-                    elif s.belongs_to_species(child, next_generation) and s == species:
+                    elif s.belongs_to_species(child, self.current_generation_index) and s == species:
                         healthy_child = True
                         new_species = False
                         offsprings.append(child)
