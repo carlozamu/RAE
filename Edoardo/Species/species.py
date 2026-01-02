@@ -15,7 +15,7 @@ class Species:
         self.id = None # TODO: decide how to assign species id
         #TODO: check if I'm creating circular dependencies
         self.generations = []
-        self.generation_offset = generation
+        self.generation_offset = generation # It's the index of the first global generation at which this species appears
         members = [{"member": member, "fitness": Fitness.evaluate(member)} for member in members]
         self.generations.append(members)
 
@@ -42,9 +42,6 @@ class Species:
         if not self.generations[generation]:
             self.generations[generation] = []
         self.generations[generation].append({"member": member, "fitness": Fitness.evaluate(member)})
-
-    def add_new_generation(self, members: List[Phenotype]) -> None:
-        self.generations.append([{"member": member, "fitness": Fitness.evaluate(member)} for member in members])
 
     def get_top_members(self, generation: Optional[int]) -> List[Dict[str, Phenotype | float]]:
         # TODO: integrate selection strategies

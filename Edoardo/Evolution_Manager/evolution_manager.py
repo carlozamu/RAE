@@ -36,6 +36,16 @@ class EvolutionManager:
                     self.create_offspring(species)
         pass
 
+    def get_active_species_count(self):
+        """
+        Counts the number of species that have members in the current generation.
+        """
+        count = 0
+        for species in self.species:
+            if species.last_generation_index() == self.current_generation_index:
+                count += 1
+        return count
+    
     def get_latest_generation(self):
         """
         Retrieves all members from the latest generation across all species.
@@ -59,12 +69,18 @@ class EvolutionManager:
             #TODO: add mutations
             new_species = True
             for s in self.species:
-                # TODO: this loop means that a newly created species can be populated by only one individual on the first generation, is that ok?
+                if s.belongs_to_species(child) and s != species and s.generation_offset == self.current_generation_index+1:
+                    # new child belongs to newly generates species together with another individual
+                    healthy_child = True
+                    new_species = False
+                    break
                 if s.belongs_to_species(child) and s != species:
+                    # new child would belong to an already existing species. Abort creation
                     healthy_child = False
                     new_species = False
                     break
                 elif s.belongs_to_species(child) and s == species:
+                    # new child belongs to same species as its parents
                     healthy_child = True
                     new_species = False
                     break
