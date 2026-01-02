@@ -32,8 +32,11 @@ class EvolutionManager:
         for species in self.species:
             if species.last_generation_index() == self.current_generation_index:
                 new_species_count = int(species.cumulative_fitness() / average_fitness if average_fitness > 0 else species.member_count())
-                for _ in range(new_species_count):
-                    self.create_offspring(species)
+                offsprings = self.create_offsprings(species, new_species_count)
+                num_to_select = len(offsprings)
+                # add hof/best parents/whatever to offsprings
+                # select num_to_select from updated offspirngs list
+                species.add_members(selected_individuals, generation=self.current_generation_index+1)
         pass
 
     def get_active_species_count(self):
@@ -56,39 +59,47 @@ class EvolutionManager:
                 members.extend(species.get_all_members())
         return None
 
-    def create_offspring(self, species):
+    def create_offsprings(self, species, num_offsprings: int):
         """
-        Creates the new generation offspring for a given species.
+        Creates num_offsprings offspring from a given species, adding the ones that create new species to the species list, 
+        and returning the ones belonging to the same species as the parents.
+        :param species: The species from which to create offspring.
+        :param num_offsprings: Number of offspring to create.
+        :return: a list of created offsprings belonging to the same species as the parents.
         """
-        parent_pool = species.get_top_members()
-        healthy_child = False
-        child = None
-        while not healthy_child:
-            parents = self._select_parents(parent_pool, self.num_parents)
-            child = Crossover.create_offspring(parents[0].genome, parents[1].genome)
-            #TODO: add mutations
-            new_species = True
-            for s in self.species:
-                if s.belongs_to_species(child) and s != species and s.generation_offset == self.current_generation_index+1:
-                    # new child belongs to newly generates species together with another individual
+        offsprings = []
+        for _ in range(num_offsprings):
+            parent_pool = species.get_top_members()
+            healthy_child = False
+            child = None
+            while not healthy_child:
+                parents = self._select_parents(parent_pool, self.num_parents)
+                child = Crossover.create_offspring(parents[0].genome, parents[1].genome)
+                #TODO: add mutations
+                new_species = True
+                for s in self.species:
+                    if s.belongs_to_species(child) and s != species and s.generation_offset == self.current_generation_index+1:
+                        # new child belongs to newly generates species together with another individual
+                        healthy_child = True
+                        new_species = False
+                        s.add_members([child], generation=self.current_generation_index+1)
+                        break
+                    if s.belongs_to_species(child) and s != species:
+                        # new child would belong to an already existing species. Abort creation
+                        healthy_child = False
+                        new_species = False
+                        break
+                    elif s.belongs_to_species(child) and s == species:
+                        # new child belongs to same species as its parents
+                        healthy_child = True
+                        new_species = False
+                        offsprings.append(child)
+                        break
+                if new_species:
                     healthy_child = True
-                    new_species = False
-                    break
-                if s.belongs_to_species(child) and s != species:
-                    # new child would belong to an already existing species. Abort creation
-                    healthy_child = False
-                    new_species = False
-                    break
-                elif s.belongs_to_species(child) and s == species:
-                    # new child belongs to same species as its parents
-                    healthy_child = True
-                    new_species = False
-                    break
-            if new_species:
-                healthy_child = True
-                #TODO: decide where to use genotype and where phenotype
-                self.species.append(Species([child], generation=self.current_generation_index+1))
-        return child
+                    #TODO: decide where to use genotype and where phenotype
+                    self.species.append(Species([child], generation=self.current_generation_index+1))
+        return offsprings
 
     @staticmethod
     def _select_parents(parent_pool, num_parents: int = 2):

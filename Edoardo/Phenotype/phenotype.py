@@ -1,9 +1,9 @@
 import time
 from typing import Callable
 
-from Filippo.AgentGenome import AgentGenome
 from Carlo.model.llm_client import LLMClient
-from Carlo.trait import Trait
+from Edoardo.Genome.agent_genome import AgentGenome
+from Edoardo.Traits.traits import Trait
 
 
 class Phenotype:

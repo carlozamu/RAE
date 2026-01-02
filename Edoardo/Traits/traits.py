@@ -1,5 +1,5 @@
-from Filippo.Gene import PromptNode
 from Carlo.model.llm_client import LLMClient
+from Edoardo.Gene.gene import PromptNode
 
 
 class Trait:

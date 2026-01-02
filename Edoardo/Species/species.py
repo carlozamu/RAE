@@ -37,12 +37,13 @@ class Species:
                                   self.c2 * (disjoint_genes/max_number_of_genes))
         return compatibility_distance < self.compatibility_threshold
 
-    def add_member(self, member: Phenotype, generation: Optional[int]) -> None:
+    def add_members(self, members: List[Phenotype], generation: Optional[int]) -> None:
         generation = generation-self.generation_offset if generation is not None else -1
         if not self.generations[generation]:
             self.generations[generation] = []
-        self.generations[generation].append({"member": member, "fitness": Fitness.evaluate(member)})
-
+        for member in members:
+            self.generations[generation].append({"member": member, "fitness": Fitness.evaluate(member)})
+    
     def get_top_members(self, generation: Optional[int]) -> List[Dict[str, Phenotype | float]]:
         # TODO: integrate selection strategies
         generation = generation-self.generation_offset if generation is not None else -1
