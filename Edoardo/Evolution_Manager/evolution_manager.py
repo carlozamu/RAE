@@ -6,6 +6,7 @@ from Edoardo.Fitness.fitness import Fitness
 from Edoardo.Selection.selection import SelectionStrategy
 from Edoardo.Generation_Manager.generation_manager import SurvivorSelectionStrategy
 from typing import Dict, List, Optional, Any
+import asyncio
 import random
 import hashlib
 
@@ -33,7 +34,7 @@ class EvolutionManager:
         self.hof_parent_ratio = hof_parent_ratio
         self.species_hall_of_fame: Dict[Species, List[Dict[str, Any]]] = {}
 
-    async def create_new_generation(self):
+    def create_new_generation(self):
         """
         Creates a new generation of individuals based on the fitness of the current generation.
         Uses the injected survivor_strategy to select the next generation for each species.
@@ -167,7 +168,7 @@ class EvolutionManager:
                 sorted_unique = sorted(unique_candidates, key=lambda x: x['fitness'], reverse=True)
                 self.species_hall_of_fame[species] = sorted_unique[:self.per_species_hof_size]
 
-    async def create_offsprings(self, species, num_offsprings: int):
+    def create_offsprings(self, species, num_offsprings: int):
         """
         Creates num_offsprings offspring from a given species.
         """
@@ -184,7 +185,7 @@ class EvolutionManager:
                     parent_node_count=len(child.nodes)
                 )
                 #mutate offspring
-                child: AgentGenome = await Mutator.mutate(child, runtime_config=child_mutation_config)
+                child: AgentGenome = asyncio.run(Mutator.mutate(genome=child, runtime_config=child_mutation_config))
                 new_species = True
                 next_generation = self.current_generation_index + 1
                 for s in self.species:
