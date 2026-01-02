@@ -1,3 +1,4 @@
+from Edoardo.Crossover.crossover import Crossover
 from Edoardo.Species.species import Species
 import random
 
@@ -51,7 +52,8 @@ class EvolutionManager:
         child = None
         while not healthy_child:
             parents = self._select_parents(parent_pool, self.num_parents)
-            #TODO: get individual
+            child = Crossover.create_offspring(parents[0].genome, parents[1].genome)
+            #TODO: add mutations
             new_species = True
             for s in self.species:
                 # TODO: this loop means that a new species can be populated by only one individual, is that ok?
@@ -65,11 +67,12 @@ class EvolutionManager:
                     break
             if new_species:
                 healthy_child = True
+                #TODO: decide where to use genotype and where phenotype
                 self.species.append(Species([child], generation=self.current_generation_index+1))
         return child
 
     @staticmethod
-    def _select_parents(parent_pool, num_parents):
+    def _select_parents(parent_pool, num_parents: int = 2):
         """
         Randomly select num_parents elements from the parent_pool list
         """
