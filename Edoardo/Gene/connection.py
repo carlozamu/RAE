@@ -1,4 +1,5 @@
 import hashlib
+import uuid
 
 # Generates a unique innovation hash for a connection between two nodes (used as id for connections)
 def generate_connection_hash(start_innovation_number, end_innovation_number):

@@ -3,6 +3,7 @@ import copy
 from Edoardo.Genome.agent_genome import AgentGenome
 from Edoardo.Gene.gene import PromptNode
 from Edoardo.Gene.connection import Connection
+from Edoardo.Utils.utilities import _get_next_innovation_number
 from Utils.LLM import LLM
 
 class MutType:
@@ -17,6 +18,39 @@ class MutType:
     GENE_SIMPLIFY = "gene_simplify"
     GENE_REFORMULATE = "gene_reformulate"
     GENE_SPLIT = "gene_split" 
+
+def get_dynamic_config(generation: int, parent_node_count: int) -> dict:
+    """
+    Calculates the mutation probabilities for a specific parent at a specific generation.
+    """
+    # 1. Architectural Decay: 0.9^(gen+1), clamped at 10%
+    # This cools down the topology changes over time.
+    p_arch = max(0.1, 0.9 ** (generation + 1))
+    
+    # 2. Gene Mutation: 1/N rule
+    # Ensures we mutate roughly 1 node per child, regardless of size.
+    # We use 'parent_node_count' because the child size is unknown yet.
+    p_gene = 1.0 / max(1, parent_node_count)
+
+    return {
+        "p_architectural_event": p_arch,
+        "p_mutate_node": p_gene,
+        
+        # Keep relative weights constant (or dynamic if you prefer)
+        "arch_probs": {
+            MutType.ARCH_ADD_NODE: 0.3,
+            MutType.ARCH_ADD_CONN: 0.3,
+            MutType.ARCH_REMOVE_NODE: 0.2,
+            MutType.ARCH_REMOVE_CONN: 0.2,
+        },
+        "gene_probs": {
+            # Content changes are more common than heavy splits
+            MutType.GENE_EXPAND: 0.3,
+            MutType.GENE_REFORMULATE: 0.3,
+            MutType.GENE_SIMPLIFY: 0.2,
+            MutType.GENE_SPLIT: 0.2 
+        }
+    }
 
 class Mutator:
     """
@@ -147,7 +181,6 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         out_node = genome.nodes[connection.out_node]
 
         # create a new node and insert it between in_node and out_node of the chosen connection
-        #TODO: why await? what async operations do we have?
         new_node: PromptNode = await self._generate_new_node(in_node.name, in_node.instruction, out_node.name, out_node.instruction)
         genome.add_node(new_node)
         # disable the chosen connection
@@ -177,7 +210,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         
         random.shuffle(incoming_node_innovation_numbers)
         random.shuffle(outgoing_node_innovation_numbers)
-        #TODO: what if  one of the lists is empty?
+        
         if incoming_node_innovation_numbers and outgoing_node_innovation_numbers:
             # A. Determine the larger and smaller lists
             max_len = max(len(incoming_node_innovation_numbers), len(outgoing_node_innovation_numbers))
@@ -393,10 +426,10 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         genome.nodes[target_node].embedding = self.llm.get_embedding(prompt1)
         
         new_gene = genome.nodes[target_node].copy()  # Copy other attributes like type, embedding, etc.
-        #TODO: here we need to already diffferentiate by innovation number
         new_gene.name = name2
         new_gene.instruction = prompt2
         new_gene.embedding = self.llm.get_embedding(prompt2)
+        new_gene.innovation_number = _get_next_innovation_number()
 
         genome.add_node(new_gene)
 
@@ -554,7 +587,7 @@ Format: Name: <name> | Instr: <instruction>
             instruction = full_text.split("Instr:")[1].strip()
             print(f"Instruction: {instruction}")
             embedding = self.llm.get_embedding(instruction)
-            return PromptNode(name, instruction, embedding=embedding)
+            return PromptNode(name, instruction, embedding=embedding, innovation_number=_get_next_innovation_number())
         except:
             return PromptNode("Bridge_Step", "Process the data from the previous step and prepare it for the next.", embedding=self.llm.get_embedding(instruction))
 
