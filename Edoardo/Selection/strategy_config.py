@@ -22,7 +22,10 @@ from Edoardo.Generation_Manager.generation_manager import (
     HallOfFameStrategy,
     GenerationManager
 )
-from Edoardo.Evolution_Manager.evolution_manager import EvolutionManager
+# from Edoardo.Evolution_Manager.evolution_manager import EvolutionManager
+import typing
+if typing.TYPE_CHECKING:
+    from Edoardo.Evolution_Manager.evolution_manager import EvolutionManager
 
 
 class StrategyConfig:
@@ -100,7 +103,7 @@ class StrategyConfig:
         strategy_name: str = "tournament_comma_plus",
         num_parents: int = 2,
         **kwargs
-    ) -> EvolutionManager:
+    ) -> 'EvolutionManager':
         """
         Create a configured EvolutionManager with one of the recommended strategies.
         
@@ -116,13 +119,6 @@ class StrategyConfig:
         
         Returns:
             Configured EvolutionManager instance
-            
-        Example:
-            >>> evolver = StrategyConfig.create_evolution_manager("tournament_comma_plus")
-            >>> evolver = StrategyConfig.create_evolution_manager(
-            ...     "rank_based_comma_plus", 
-            ...     selection_pressure=2.5
-            ... )
         """
         strategy_map = {
             "tournament_comma_plus": StrategyConfig.get_tournament_comma_plus,
@@ -136,8 +132,19 @@ class StrategyConfig:
                 f"Choose from: {list(strategy_map.keys())}"
             )
         
-        selection_strategy, _ = strategy_map[strategy_name](num_parents=num_parents, **kwargs)
-        return EvolutionManager(num_parents=num_parents, selection_strategy=selection_strategy)
+        from Edoardo.Evolution_Manager.evolution_manager import EvolutionManager
+        # Extract HoF parameters from kwargs if present, or use defaults
+        per_species_hof_size = kwargs.get('per_species_hof_size', 10)
+        hof_parent_ratio = kwargs.get('hof_parent_ratio', 0.2)
+        
+        selection_strategy, survivor_strategy = strategy_map[strategy_name](num_parents=num_parents, **kwargs)
+        return EvolutionManager(
+            selection_strategy=selection_strategy,
+            survivor_strategy=survivor_strategy,
+            num_parents=num_parents,
+            per_species_hof_size=per_species_hof_size,
+            hof_parent_ratio=hof_parent_ratio
+        )
     
     @staticmethod
     def create_generation_manager(
@@ -195,7 +202,7 @@ class StrategyConfig:
         population_size: int = 50,
         generation: int = 0,
         **kwargs
-    ) -> Tuple[EvolutionManager, GenerationManager]:
+    ) -> typing.Tuple['EvolutionManager', GenerationManager]:
         """
         Create both EvolutionManager and GenerationManager with matching strategies.
         

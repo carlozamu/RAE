@@ -1,8 +1,11 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, TYPE_CHECKING
 
 from Edoardo.Fitness.fitness import Fitness
 from Edoardo.Genome.agent_genome import AgentGenome
 from Edoardo.Phenotype.phenotype import Phenotype
+
+if TYPE_CHECKING:
+    from Edoardo.Selection.selection import SelectionStrategy
 
 class Species:
 
@@ -11,11 +14,12 @@ class Species:
     c2 = 1.0  # Coefficient for disjoint genes
     compatibility_threshold = 3.0  # Threshold for species compatibility
 
-    def __init__(self, members: List[Phenotype], generation: int = 0):
+    def __init__(self, members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None):
         self.id = None # TODO: decide how to assign species id
         #TODO: check if I'm creating circular dependencies
         self.generations = []
         self.generation_offset = generation # It's the index of the first global generation at which this species appears
+        self.selection_strategy = selection_strategy
         members = [{"member": member, "fitness": Fitness.evaluate(member)} for member in members]
         self.generations.append(members)
 
@@ -44,11 +48,28 @@ class Species:
         for member in members:
             self.generations[generation].append({"member": member, "fitness": Fitness.evaluate(member)})
     
-    def get_top_members(self, generation: Optional[int]) -> List[Dict[str, Phenotype | float]]:
-        # TODO: integrate selection strategies
+    def get_top_members(self, generation: Optional[int] = None) -> List[Dict[str, Phenotype | float]]:
+        """
+        Get top members from the species using selection strategy if available, otherwise by fitness sorting.
+        
+        :param generation: Generation index to get members from (None for last generation)
+        :return: List of top members as dicts with 'member' and 'fitness' keys
+        """
         generation = generation-self.generation_offset if generation is not None else -1
-        sorted_members = sorted(self.generations[generation], key=lambda x: x["fitness"], reverse=True)
-        return sorted_members[:self.top_r]
+        population = self.generations[generation]
+        
+        if not population:
+            return []
+        
+        # Use selection strategy if provided, otherwise fall back to sorting
+        if self.selection_strategy is not None:
+            # Use selection strategy to select top_r members
+            selected = self.selection_strategy.select(population, num_parents=min(self.top_r, len(population)))
+            return selected
+        else:
+            # Fallback to original behavior: sort by fitness
+            sorted_members = sorted(population, key=lambda x: x["fitness"], reverse=True)
+            return sorted_members[:self.top_r]
 
     def _count_excess_genes(self, ind1: AgentGenome, ind2: AgentGenome) -> int:
         #TODO: can this work with current implementation of nodes with string ids?

@@ -1,7 +1,7 @@
 """
 1) Poulation initialization (simple same pormt, single node, 50 individuals)
 Evaluation of a single individual as baseline
-Loop until termination condition (fitness under threshold (@DEV) or max time (X hours/ k-pressed) reached):
+Loop until termination condition (fitness under threshold [<0.1] or max time (X hours/ k-pressed) reached):
     Loop for each species:
         3) Selection (intra-species)
         4) Crossover
