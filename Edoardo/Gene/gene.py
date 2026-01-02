@@ -4,7 +4,7 @@ class PromptNode:
     """
     Represents a node in the reasoning chain.
     """
-    def __init__(self, name: str, instruction: str, embedding=None, node_id=None, innovation_number=None):
+    def __init__(self, name: str, instruction: str, embedding=None, node_id=None, innovation_number:int=-1):
         # 1. Identity
         self.id = node_id if node_id is not None else str(uuid.uuid4())
         self.innovation_number = innovation_number if innovation_number is not None else self.id

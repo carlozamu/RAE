@@ -1,4 +1,5 @@
 from Edoardo.Crossover.crossover import Crossover
+from Edoardo.Mutations.mutator import get_dynamic_config
 from Edoardo.Species.species import Species
 from Edoardo.Fitness.fitness import Fitness
 from Edoardo.Selection.selection import SelectionStrategy

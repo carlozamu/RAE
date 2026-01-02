@@ -1,18 +1,19 @@
-from Edoardo.Gene.gene import PromptNode
-from Edoardo.Gene.connection import Connection
+import uuid
+
+import numpy as np
+from Gene.gene import PromptNode
+from Gene.connection import Connection
 
 class AgentGenome:
-    def __init__(self):
-        self.family_id = None  # Optional: to track lineage
-        self.nodes: dict[str, PromptNode] = {} # dict of innovation_number: PromptNode
-        self.connections: dict[str, Connection] = {} # dict of innovation_number: Connection
-        self.start_node_innovation_number = None 
-        self.end_node_innovation_number = None
-        self.fitness = None #TODO: do we need fitness here?
-        self.adjusted_fitness = None 
+    def __init__(self, nodes_dict: dict[str, PromptNode] = None, connections_dict: dict[str, Connection] = None, start_node_innovation_number:int=None, end_node_innovation_number:int=None, fitness:float=np.inf):
+        self.id = str(uuid.uuid4())
+        self.nodes: dict[str, PromptNode] = nodes_dict if nodes_dict is not None else {} # dict of innovation_number: PromptNode
+        self.connections: dict[str, Connection] = connections_dict if connections_dict is not None else {} # dict of innovation_number: Connection
+        self.start_node_innovation_number = start_node_innovation_number if start_node_innovation_number is not None else None
+        self.end_node_innovation_number = end_node_innovation_number if end_node_innovation_number is not None else None
+        self.fitness = fitness if fitness is not None else 0.0
 
     def add_node(self, node: PromptNode):
-        #TODO: if two similar individuals add a node in the same position, are they going to get the same id and innovation number on the same connection?
         self.nodes[node.innovation_number] = node
 
     def add_connection(self, in_node_innovation_number, out_node_innovation_number):
@@ -20,8 +21,6 @@ class AgentGenome:
         for conn in self.connections.values():
             if conn.in_node == in_node_innovation_number and conn.out_node == out_node_innovation_number:
                 return # Connection already exists, do nothing
-
-        #TODO: if i create the same connection in two different istances will the innovation number be the same?
 
         # Create new connection (Innovation number generated automatically by Connection class)
         new_conn = Connection(in_node_innovation_number, out_node_innovation_number)
