@@ -33,14 +33,50 @@ class EvolutionManager:
         self.per_species_hof_size = per_species_hof_size
         self.hof_parent_ratio = hof_parent_ratio
         self.species_hall_of_fame: Dict[Species, List[Dict[str, Any]]] = {}
+        self.fitness_evaluator = Fitness()
+        
+        # Dummy Prompt Pool for Development
+        self.problem_pool = [
+            {"input": "What is 2+2?", "target": "4", "rationale": "2 plus 2 equals 4."},
+            {"input": "Capital of France?", "target": "Paris", "rationale": "Paris is the capital of France."},
+            {"input": "What implies rain?", "target": "Clouds", "rationale": "Clouds often imply rain."},
+            {"input": "Color of the sky?", "target": "Blue", "rationale": "The sky is blue due to Rayleigh scattering."},
+            {"input": "What is 5*5?", "target": "25", "rationale": "5 times 5 is 25."},
+            {"input": "Opposite of cold?", "target": "Hot", "rationale": "Hot is the opposite of cold."},
+            {"input": "First letter of alphabet?", "target": "A", "rationale": "A is the first letter."},
+            {"input": "Do birds fly?", "target": "Yes", "rationale": "Most birds can fly."},
+            {"input": "Is fire hot?", "target": "Yes", "rationale": "Fire produces heat."},
+            {"input": "Planet we live on?", "target": "Earth", "rationale": "We live on Earth."}
+        ]
+        self.pool_index = 0
 
-    def create_new_generation(self):
+    def get_problem_pool(self, size: int = 3) -> List[Dict[str, str]]:
+        """
+        Returns a list of problems (dict with 'input', 'target', 'rationale') from the pool.
+        Ensures rotation to avoid immediate reuse if possible.
+        """
+        if size > len(self.problem_pool):
+            return self.problem_pool # Return all if size is too big
+            
+        # Select batch
+        batch = []
+        for _ in range(size):
+            batch.append(self.problem_pool[self.pool_index])
+            self.pool_index = (self.pool_index + 1) % len(self.problem_pool)
+            
+        return batch
+
+    async def create_new_generation(self):
         """
         Creates a new generation of individuals based on the fitness of the current generation.
         Uses the injected survivor_strategy to select the next generation for each species.
         """
         # Update Hall of Fame from current generation
         self._update_hall_of_fame()
+
+        # Generate Problem Pool for this generation
+        # We use the same pool for all species to ensure fair comparison
+        problem_pool = self.get_problem_pool(size=3) # Configurable size
 
         # TODO: Is there a better way to calculate total average fitness?
         total_fitness = 0
@@ -63,16 +99,28 @@ class EvolutionManager:
 
                     # Get current generation members for this species
                     current_members = species.get_all_members_from_generation(self.current_generation_index)
+                    current_phenotypes = [m['member'] for m in current_members]
 
-                    # Convert offspring Phenotypes to dict format
-                    offspring_dicts = [{"member": child, "fitness": Fitness.evaluate(child)} for child in offsprings]
+                    # Evaluate ALL candidates (Current + Offsprings) on the NEW problem pool
+                    # This ensures fairness as the problem set changes/rotates.
+                    all_candidates = current_phenotypes + offsprings
+                    self.fitness_evaluator.evaluate_population(all_candidates, problem_pool)
+
+                    # Convert offspring Phenotypes to dict format (now with updated fitness)
+                    offspring_dicts = [{"member": child, "fitness": child.fitness} for child in offsprings]
+                    
+                    # Update current_members dicts with new fitness
+                    # Note: This updates the dicts used for selection, effectively re-evaluating parents.
+                    # We create NEW dicts to avoid modifying the historical record in species.generations if that's preferred,
+                    # BUT for CommaPlus/Elitism, we need comparable fitness.
+                    current_pop_dicts = [{"member": p, "fitness": p.fitness} for p in current_phenotypes]
 
                     # Determine target size (maintain population size)
-                    target_size = len(offspring_dicts)
+                    target_size = len(current_pop_dicts)
 
                     # Select survivors using strategy
                     selected_individuals_dicts = self.survivor_strategy.select_survivors(
-                        current_population=current_members,
+                        current_population=current_pop_dicts,
                         offspring_population=offspring_dicts,
                         population_size=target_size
                     )

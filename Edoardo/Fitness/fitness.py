@@ -10,23 +10,54 @@ class Fitness:
             w_complexity_cost=0.07  #! DA SISTEMARE IN BASE A QUANTO GROSSO è IL GRAFO DI NORMA!
         )
     
-    def evaluate(self, individual: Phenotype) -> float:
-       
-        #? Calcolo di ESEMPIO (per ora)
-        model_answer = "The capital of France is Paris"
-        model_rationale = "Paris has been the capital of France since 987 AD."
-        target_answer = "The capital of France is Paris"
-        target_rationale = "Paris has been the capital of France since 987 AD."
-        num_nodes = 2
-        num_edges = 3
+    
+    def evaluate(self, individual: Phenotype, problem: dict) -> float:
+        """
+        Evaluate a single individual on a single problem.
+        """
+        # Run individual
+        # Note: individual.run returns a list of outputs (one per node). We usually take the final valid answer.
+        # The Phenotype.run method signature is: run(self, initial_input: str = "", answer_only: bool = True) -> list[str]
+        outputs = individual.run(initial_input=problem['input'], answer_only=True)
+        
+        # Take the last output as the answer
+        generated_ans = outputs[-1] if outputs else ""
+        # TODO: Handle rationale extraction if the agent outputs it separately or if we need to parse it
+        # For now, we assume the whole output is the answer
+        
+        # In a real scenario, we might want to ask the agent to output explicit "Answer: ... Rationale: ..." sections
+        # But UnifiedFitnessCalculator handles generated_rat as optional.
+        
+        # Calculate fitness (Loss)
+        result = self.calculator.compute(
+            generated_ans=generated_ans,
+            target_ans=problem['target'],
+            generated_rat=None, # We don't have explicit rationale from agent yet
+            target_rat=problem.get('rationale'),
+            num_nodes=len(individual.genome.nodes),
+            num_edges=len(individual.genome.connections)
+        )
+        
+        return result["loss"]
 
-        return self.calculator.compute(
-            generated_ans=model_answer,
-            target_ans=target_answer,
-            generated_rat=model_rationale, # opzionale (se si valuta il reasoning)
-            target_rat=target_rationale, # opzionale (se si valuta il reasoning)
-            num_nodes=num_nodes,
-            num_edges=num_edges
-        )["loss"]
+    def evaluate_population(self, population: list[Phenotype], problem_pool: list[dict]):
+        """
+        Evaluates a list of phenotypes against a pool of problems.
+        Updates the .fitness attribute of each phenotype with the average loss.
+        """
+        for individual in population:
+            total_loss = 0.0
+            
+            for problem in problem_pool:
+                loss = self.evaluate(individual, problem)
+                total_loss += loss
+            
+            # Average loss
+            if problem_pool:
+                avg_loss = total_loss / len(problem_pool)
+            else:
+                avg_loss = 1.0 # Default high loss if no problems
+            
+            individual.fitness = avg_loss
 
         

@@ -1,7 +1,7 @@
 import time
 from typing import Callable
 
-from Genome.agent_genome import AgentGenome
+
 from Carlo.model.llm_client import LLMClient
 from Edoardo.Genome.agent_genome import AgentGenome
 from Edoardo.Traits.traits import Trait
