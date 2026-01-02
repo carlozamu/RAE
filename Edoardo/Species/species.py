@@ -1,4 +1,5 @@
-from typing import List, Dict, Optional, TYPE_CHECKING
+from typing import List, Dict, Optional, TYPE_CHECKING, Any
+import hashlib
 
 from Edoardo.Fitness.fitness import Fitness
 from Edoardo.Genome.agent_genome import AgentGenome
@@ -14,13 +15,64 @@ class Species:
     c2 = 1.0  # Coefficient for disjoint genes
     compatibility_threshold = 3.0  # Threshold for species compatibility
 
-    def __init__(self, members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None):
+    def __init__(self, members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None, max_hof_size: int = 10):
         self.id = None # TODO: decide how to assign species id
         self.generations = []
         self.generation_offset = generation # It's the index of the first global generation at which this species appears
         self.selection_strategy = selection_strategy
-        members = [{"member": member, "fitness": Fitness.evaluate(member)} for member in members]
+        self.max_hof_size = max_hof_size
+        self.hall_of_fame: List[Dict[str, Any]] = []
+        
+        # We assume members already have their fitness evaluated before being added to species
+        members = [{"member": member, "fitness": member.fitness} for member in members]
         self.generations.append(members)
+
+    def update_hall_of_fame(self) -> None:
+        """
+        Updates the Hall of Fame for this species with the best individuals from all generations.
+        Maintains unique individuals based on genome signature.
+        """
+        # Collect all members from history
+        all_members = []
+        for gen_members in self.generations:
+            all_members.extend(gen_members)
+            
+        # Process candidates
+        # We want to merge existing HoF with historical population
+        # But efficiently: usually we just need to check the NEWEST generation against current HoF
+        # For robustness, we'll check everything but filter duplicates
+        
+        current_pool = self.hall_of_fame + all_members
+        
+        unique_best = {} # Signature -> MemberDict
+        
+        for member_dict in current_pool:
+            sig = self._get_individual_signature(member_dict)
+            
+            # If we haven't seen this signature, or this instance has better fitness (unlikely if immutable, but good practice)
+            if sig not in unique_best:
+                unique_best[sig] = member_dict
+            elif member_dict["fitness"] > unique_best[sig]["fitness"]:
+                unique_best[sig] = member_dict
+                
+        # Convert back to list and sort
+        sorted_best = sorted(unique_best.values(), key=lambda x: x["fitness"], reverse=True)
+        
+        # Keep top N
+        self.hall_of_fame = sorted_best[:self.max_hof_size]
+
+    @staticmethod
+    def _get_individual_signature(individual: Dict[str, Any]) -> str:
+        """
+        Generate a unique signature for an individual based on its genome structure.
+        """
+        genome = individual['member'].genome
+        # Signature based on nodes and connections to identify topological duplicates
+        nodes_sig = ",".join(sorted(genome.nodes.keys()))
+        conns_sig = ",".join(sorted([f"{c.in_node}->{c.out_node}" for c in genome.connections.values() if c.enabled]))
+        
+        raw_sig = f"N:[{nodes_sig}]|C:[{conns_sig}]"
+        return hashlib.md5(raw_sig.encode()).hexdigest()
 
     def belongs_to_species(self, candidate: Phenotype, generation: Optional[int]) -> bool:
         """
@@ -41,11 +93,21 @@ class Species:
         return compatibility_distance < self.compatibility_threshold
 
     def add_members(self, members: List[Phenotype], generation: Optional[int]) -> None:
-        generation = generation-self.generation_offset if generation is not None else -1
-        if not self.generations[generation]:
-            self.generations[generation] = []
+        gen_idx = generation - self.generation_offset if generation is not None else -1
+        
+        # Handle case where we need to extend the generations list
+        if gen_idx >= 0:
+            while len(self.generations) <= gen_idx:
+                self.generations.append([])
+            target_list = self.generations[gen_idx]
+        else:
+            # -1 case (append to last)
+            if not self.generations:
+                self.generations.append([])
+            target_list = self.generations[-1]
+
         for member in members:
-            self.generations[generation].append({"member": member, "fitness": Fitness.evaluate(member)})
+            target_list.append({"member": member, "fitness": member.fitness})
     
     def get_top_members(self, generation: Optional[int] = None) -> List[Dict[str, Phenotype | float]]:
         """

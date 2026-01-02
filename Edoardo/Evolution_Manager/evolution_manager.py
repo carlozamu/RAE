@@ -32,7 +32,8 @@ class EvolutionManager:
         self.num_parents = num_parents
         self.per_species_hof_size = per_species_hof_size
         self.hof_parent_ratio = hof_parent_ratio
-        self.species_hall_of_fame: Dict[Species, List[Dict[str, Any]]] = {}
+        self.per_species_hof_size = per_species_hof_size
+        self.hof_parent_ratio = hof_parent_ratio
         self.fitness_evaluator = Fitness()
         
         # Dummy Prompt Pool for Development
@@ -71,8 +72,10 @@ class EvolutionManager:
         Creates a new generation of individuals based on the fitness of the current generation.
         Uses the injected survivor_strategy to select the next generation for each species.
         """
-        # Update Hall of Fame from current generation
-        self._update_hall_of_fame()
+        # Update Hall of Fame for all active species
+        for species in self.species:
+            if species.last_generation_index() == self.current_generation_index:
+                species.update_hall_of_fame()
 
         # Generate Problem Pool for this generation
         # We use the same pool for all species to ensure fair comparison
@@ -253,7 +256,7 @@ class EvolutionManager:
                         break
                 if new_species:
                     healthy_child = True
-                    self.species.append(Species([child], generation=next_generation))
+                    self.species.append(Species([child], generation=next_generation, max_hof_size=self.per_species_hof_size))
         return offsprings
 
     def select_parents(self, species: Species, num_parents: int) -> List:
@@ -264,8 +267,8 @@ class EvolutionManager:
         :param num_parents: Total number of parents to select
         :return: List of Phenotype objects to use as parents
         """
-        # Get HoF members
-        hof_members = self.species_hall_of_fame.get(species, [])
+        # Get HoF members directly from the Species
+        hof_members = species.hall_of_fame
         
         # Calculate split
         num_hof_parents = int(num_parents * self.hof_parent_ratio) if self.per_species_hof_size > 0 and hof_members else 0
