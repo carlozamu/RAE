@@ -47,6 +47,7 @@ class Species:
         self.generations.append([{"member": member, "fitness": Fitness.evaluate(member)} for member in members])
 
     def get_top_members(self, generation: Optional[int]) -> List[Dict[str, Phenotype | float]]:
+        # TODO: integrate selection strategies
         generation = generation-self.generation_offset if generation is not None else -1
         sorted_members = sorted(self.generations[generation], key=lambda x: x["fitness"], reverse=True)
         return sorted_members[:self.top_r]

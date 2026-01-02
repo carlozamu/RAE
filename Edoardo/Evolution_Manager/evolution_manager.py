@@ -5,7 +5,10 @@ import random
 
 class EvolutionManager:
     def __init__(self, num_parents: int = 2):
-        self.current_generation_index = 0
+        """Manages the evolution process across generations and species.
+        :param num_parents: Number of parents to use for creating offspring.
+        """
+        self.current_generation_index = 0 # Index of the current generation
         self.species = []
         self.num_parents = num_parents
 
@@ -56,7 +59,7 @@ class EvolutionManager:
             #TODO: add mutations
             new_species = True
             for s in self.species:
-                # TODO: this loop means that a new species can be populated by only one individual, is that ok?
+                # TODO: this loop means that a newly created species can be populated by only one individual on the first generation, is that ok?
                 if s.belongs_to_species(child) and s != species:
                     healthy_child = False
                     new_species = False
