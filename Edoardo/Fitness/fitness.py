@@ -11,7 +11,6 @@ class Fitness:
         )
     
     def evaluate(self, individual: Phenotype) -> float:
-        # TODO funzione per testare qui l'individio (tipo chiama API o altro) oppure appena dopo aver generato la risposta
        
         #? Calcolo di ESEMPIO (per ora)
         model_answer = "The capital of France is Paris"

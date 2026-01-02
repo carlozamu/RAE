@@ -1,5 +1,6 @@
 from Edoardo.Crossover.crossover import Crossover
-from Edoardo.Mutations.mutator import get_dynamic_config
+from Edoardo.Genome.agent_genome import AgentGenome
+from Edoardo.Mutations.mutator import Mutator, get_dynamic_config
 from Edoardo.Species.species import Species
 from Edoardo.Fitness.fitness import Fitness
 from Edoardo.Selection.selection import SelectionStrategy
@@ -32,7 +33,7 @@ class EvolutionManager:
         self.hof_parent_ratio = hof_parent_ratio
         self.species_hall_of_fame: Dict[Species, List[Dict[str, Any]]] = {}
 
-    def create_new_generation(self):
+    async def create_new_generation(self):
         """
         Creates a new generation of individuals based on the fitness of the current generation.
         Uses the injected survivor_strategy to select the next generation for each species.
@@ -57,7 +58,7 @@ class EvolutionManager:
                         self.current_generation_index))
 
                 # Create offspring
-                offsprings = self.create_offsprings(species, new_species_count)
+                offsprings = await self.create_offsprings(species, new_species_count)
 
                 # Get current generation members for this species
                 current_members = species.generations[self.current_generation_index - species.generation_offset] if (
@@ -168,7 +169,7 @@ class EvolutionManager:
                 sorted_unique = sorted(unique_candidates, key=lambda x: x['fitness'], reverse=True)
                 self.species_hall_of_fame[species] = sorted_unique[:self.per_species_hof_size]
 
-    def create_offsprings(self, species, num_offsprings: int):
+    async def create_offsprings(self, species, num_offsprings: int):
         """
         Creates num_offsprings offspring from a given species.
         """
@@ -181,7 +182,13 @@ class EvolutionManager:
                 if len(parents) < self.num_parents:
                     break
                 child = Crossover.create_offspring(parents[0].genome, parents[1].genome)
-                # TODO: add mutations
+                # Calculate dynamic mutation probabilities
+                child_mutation_config = get_dynamic_config(
+                    generation=self.current_generation_index, 
+                    parent_node_count=len(child.nodes)
+                )
+                #mutate offspring
+                child: AgentGenome = await Mutator.mutate(child, runtime_config=child_mutation_config)
                 new_species = True
                 next_generation = self.current_generation_index + 1
                 for s in self.species:
