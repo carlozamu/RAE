@@ -58,15 +58,10 @@ class EvolutionManager:
                         self.current_generation_index))
                 if new_species_count > 0:
                     # Create offspring
-                    offsprings = self.create_offsprings(species, new_species_count)
+                    offsprings = await self.create_offsprings(species, new_species_count)
 
-<<<<<<< HEAD
                     # Get current generation members for this species
                     current_members = species.get_all_members_from_generation(self.current_generation_index)
-=======
-                # Create offspring
-                offsprings = await self.create_offsprings(species, new_species_count)
->>>>>>> baf5461216dd926c7b2ca0bc539540d2b9204746
 
                     # Convert offspring Phenotypes to dict format
                     offspring_dicts = [{"member": child, "fitness": Fitness.evaluate(child)} for child in offsprings]
@@ -258,5 +253,4 @@ class EvolutionManager:
                  selected_parents.append(random.choice(hof_members)['member'])
             else:
                 break
-        
         return selected_parents[:num_parents]
