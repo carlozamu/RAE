@@ -26,41 +26,68 @@ class AgentGenome:
         new_conn = Connection(in_node_innovation_number, out_node_innovation_number)
         self.connections[new_conn.innovation_number] = new_conn
 
-    def get_linear_chain(self) -> list[PromptNode]:
-        """
-        Retrieves the linear chain of nodes starting from start_node_id and following enabled connections.
-        It's needed to practically execute the agent's prompt sequence.
-        """
-        chain = []
-        if self.start_node_innovation_number is None:
-            return chain # return empty if no start node defined
+    def get_execution_order(self) -> list[PromptNode]:
+            """
+            Returns a topologically sorted list of nodes (Kahn's Algorithm).
+            Ensures that a node is only executed after ALL its dependencies (incoming connections) are processed.
             
-        current_node_innovation_number = self.start_node_innovation_number # begin from start node
-        steps = 0
-        max_steps = 50 # arbitrary limit to prevent infinite loops
-        
-        while current_node_innovation_number is not None and steps < max_steps:
-            curr_node = self.nodes.get(current_node_innovation_number)
-            if not curr_node: 
-                break
-            chain.append(curr_node)
-            
-            next_node = None
+            Example: If Start->A, Start->B, B->C, C->A.
+            Order: Start -> B -> C -> A.
+            """
+            if self.start_node_innovation_number is None:
+                return []
+
+            # 1. Build Adjacency List and In-Degree Count
+            # adj[u] = [v1, v2] means u points to v1 and v2
+            adj = {node_id: [] for node_id in self.nodes}
+            in_degree = {node_id: 0 for node_id in self.nodes}
+
+            # Only consider ENABLED connections
             for conn in self.connections.values():
-                if conn.in_node == current_node_innovation_number and conn.enabled:
-                    next_node = conn.out_node
-                    break
+                if conn.enabled:
+                    u, v = conn.in_node, conn.out_node
+                    # Safety check to ensure nodes still exist in the genome
+                    if u in adj and v in adj:
+                        adj[u].append(v)
+                        in_degree[v] += 1
+
+            # 2. Initialize Queue with the Start Node
+            # We start specifically with the defined start_node to ensure the chain begins correctly.
+            # (In a valid DAG, start_node should have in_degree 0, but we force it just in case)
+            queue = [self.start_node_innovation_number]
             
-            current_node_innovation_number = next_node
-            steps += 1
+            sorted_nodes = []
+            visited_count = 0
 
-        if steps == max_steps:
-            print("Warning: Max steps reached in get_linear_chain, possible cycle detected.")
-            if self.end_node_innovation_number and self.end_node_innovation_number in self.nodes and self.nodes[self.end_node_innovation_number] != chain[-1]:
-                chain.append(self.nodes[self.end_node_innovation_number]) # append the end node at the end to ensure it's the last node that will be executed
+            # 3. Kahn's Algorithm Loop
+            while queue:
+                # Pop the first ready node
+                curr_id = queue.pop(0)
+                
+                # Fetch the actual object and add to result
+                if curr_id in self.nodes:
+                    sorted_nodes.append(self.nodes[curr_id])
+                    visited_count += 1
 
-        return chain
+                # Iterate through neighbors
+                for neighbor in adj[curr_id]:
+                    in_degree[neighbor] -= 1
+                    
+                    # If neighbor has no more unsatisfied dependencies, it's ready to run
+                    if in_degree[neighbor] == 0:
+                        queue.append(neighbor)
 
+            # 4. Cycle / Reachability Detection
+            # If the number of sorted nodes < total nodes reachable from start, 
+            # it means there was a cycle or disconnected dead-ends.
+            
+            # Check if END node is missing (critical failure)
+            has_end = any(n.id == self.end_node_innovation_number for n in sorted_nodes)
+            if not has_end and self.end_node_innovation_number in self.nodes:
+                print("Warning: End node not reachable or caught in a cycle.")
+            
+            return sorted_nodes
+    
     def copy(self):
         """
         Deep copies the entire genome.
