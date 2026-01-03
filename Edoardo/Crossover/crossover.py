@@ -15,6 +15,8 @@ class Crossover:
         :return: AgentGenome
         """
         offspring_genome = AgentGenome()
+        offspring_genome.start_node_innovation_number = parent1_genome.start_node_innovation_number
+        offspring_genome.end_node_innovation_number = parent1_genome.end_node_innovation_number
         node_list = list(parent1_genome.nodes.keys()) + list(parent2_genome.nodes.keys())
         node_list = list(set(node_list))
         for node_innovation_number in node_list:
@@ -45,4 +47,8 @@ class Crossover:
                 except KeyError:
                     inherited_connection = parent2_genome.connections[edge_id].copy()
                     offspring_genome.add_connection(inherited_connection.in_node, inherited_connection.out_node)
+        
+        # Remove any cycles that may have been created during crossover
+        offspring_genome.remove_cycles()
+        
         return offspring_genome

@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, TYPE_CHECKING, Any
+from typing import List, Dict, Optional, TYPE_CHECKING, Any, Union
 import hashlib
 
 from Edoardo.Fitness.fitness import Fitness
@@ -15,7 +15,7 @@ class Species:
     c2 = 1.0  # Coefficient for disjoint genes
     compatibility_threshold = 3.0  # Threshold for species compatibility
 
-    def __init__(self, members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None, max_hof_size: int = 10):
+    def __init__(self, initial_members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None, max_hof_size: int = 10):
         self.id = None # TODO: decide how to assign species id
         self.generations = []
         self.generation_offset = generation # It's the index of the first global generation at which this species appears
@@ -24,7 +24,7 @@ class Species:
         self.hall_of_fame: List[Dict[str, Any]] = []
         
         # We assume members already have their fitness evaluated before being added to species
-        members = [{"member": member, "fitness": member.fitness} for member in members]
+        members: List[Dict[str, Union[Phenotype, float]]] = [{"member": member, "fitness": member.fitness} for member in initial_members]
         self.generations.append(members)
 
     def update_hall_of_fame(self) -> None:
@@ -73,6 +73,25 @@ class Species:
         
         raw_sig = f"N:[{nodes_sig}]|C:[{conns_sig}]"
         return hashlib.md5(raw_sig.encode()).hexdigest()
+    
+    def adjusted_offspring_count(self, average_fitness: float, generation: int) -> int:
+        """
+        Calculate adjusted offspring count for the species based on average fitness.
+        
+        :param average_fitness: Average fitness of the entire population
+        :param generation: Current generation index
+        :return: Adjusted number of offspring for this species
+        """
+        generation = generation - self.generation_offset
+        cumulative_fit = self.cumulative_fitness(generation)
+        member_count = self.member_count(generation)
+        
+        if average_fitness > 0:
+            adjusted_count = cumulative_fit / average_fitness
+        else:
+            adjusted_count = member_count
+        
+        return int(adjusted_count)
 
     def belongs_to_species(self, candidate: Phenotype, generation: Optional[int]) -> bool:
         """

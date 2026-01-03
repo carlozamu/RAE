@@ -32,7 +32,8 @@ class EvolutionManager:
         :param dataset_manager: Object capable of providing get_batch(size).
         """
         self.current_generation_index = 0  # Index of the current generation
-        self.species = _get_initial_species(initial_population) ##FLAG##
+        self.species: List[Species] = self._get_initial_species(initial_population) ##FLAG##
+        #TODO: initialize the species given a population
         self.selection_strategy = selection_strategy
         self.survivor_strategy = survivor_strategy
         self.mutator = mutator
@@ -42,6 +43,29 @@ class EvolutionManager:
         
         self.fitness_evaluator = fitness_evaluator
         self.dataset_manager = dataset_manager
+    
+    def _get_initial_species(self, initial_population: List[Phenotype]) -> List[Species]:
+        """
+        Initializes species from the initial population.
+        Creates a first species with the first individual, then assigns others to existing species or creates new ones.
+        :param initial_population: List of Phenotype individuals to speciate.
+        :return: List of Species objects.
+        """
+        species_list = []
+        first_species = Species([initial_population[0]], generation=self.current_generation_index, max_hof_size=self.per_species_hof_size)
+        initial_population = initial_population[1:]
+        species_list.append(first_species)
+        for individual in initial_population:
+            added_to_species = False
+            for species in species_list:
+                if species.belongs_to_species(individual.genome, self.current_generation_index):
+                    species.add_members([individual], generation=self.current_generation_index)
+                    added_to_species = True
+                    break
+            if not added_to_species:
+                new_species = Species([individual], generation=self.current_generation_index, max_hof_size=self.per_species_hof_size)
+                species_list.append(new_species)
+        return species_list
 
 
     def get_problem_pool(self, size: int = 3) -> List[Dict[str, str]]:
@@ -49,6 +73,29 @@ class EvolutionManager:
         Returns a list of problems from the dataset manager.
         """
         return self.dataset_manager.get_batch(size=size)
+    
+    def _compute_normalized_species_counts(self, average_fitness: float, total_individuals: int) -> Dict[Species, int]:
+        """
+        Computes normalized offspring counts for each species based on average fitness.
+        :param average_fitness: Average fitness across all species.
+        :param total_individuals: Total number of individuals across all species.
+        :return: Dictionary mapping Species to their normalized offspring counts.
+        """
+        species_counts = {}
+        for species in self.species:
+            species_counts[species] = 0
+            if species.last_generation_index() == self.current_generation_index:
+                # Calculate number of offspring to create
+                new_species_count = species.adjusted_offspring_count(average_fitness, self.current_generation_index)
+                species_counts[species] = new_species_count
+        normalized_species_counts = {}
+        total_counts = sum(species_counts.values())
+        for species, count in species_counts.items():
+            if total_counts > 0:
+                normalized_species_counts[species] = int((count / total_counts) * total_individuals)
+            else:
+                normalized_species_counts[species] = 0
+        return normalized_species_counts
 
     async def create_new_generation(self)-> list[Tuple[str, Phenotype]]: # tuple(species_name, individual):
         """
@@ -72,16 +119,13 @@ class EvolutionManager:
                 total_fitness += species.cumulative_fitness(self.current_generation_index)
                 total_individuals += species.member_count(self.current_generation_index)
         average_fitness = total_fitness / total_individuals if total_individuals > 0 else 0
-
+        species_counts = self._compute_normalized_species_counts(average_fitness, total_individuals)
         for species in self.species:
             if species.last_generation_index() == self.current_generation_index:
-                # Calculate number of offspring to create
-                new_species_count = int(
-                    species.cumulative_fitness(self.current_generation_index) / average_fitness if average_fitness > 0 else species.member_count(
-                        self.current_generation_index))
+                new_species_count = species_counts.get(species, 0)
                 if new_species_count > 0:
                     # Create offspring
-                    offsprings = await self.create_offsprings(species, new_species_count)
+                    offsprings = self.create_offsprings(species, new_species_count)
 
                     # Get current generation members for this species
                     current_members = species.get_all_members_from_generation(self.current_generation_index)
@@ -101,8 +145,8 @@ class EvolutionManager:
                     # BUT for CommaPlus/Elitism, we need comparable fitness.
                     current_pop_dicts = [{"member": p, "fitness": p.fitness} for p in current_phenotypes]
 
-                    # Determine target size (maintain population size)
-                    target_size = len(current_pop_dicts)
+                    # Determine target size (keep total population constant)
+                    target_size = len(offsprings)
 
                     # Select survivors using strategy
                     selected_individuals_dicts = self.survivor_strategy.select_survivors(
@@ -120,7 +164,7 @@ class EvolutionManager:
         # Advance generation index
         self.current_generation_index += 1
 
-        return ##FLAG##
+        return self.get_latest_generation()
 
     def get_active_species_count(self):
         """
@@ -131,6 +175,17 @@ class EvolutionManager:
             if species.last_generation_index() == self.current_generation_index:
                 count += 1
         return count
+
+    def get_latest_generation(self):
+        """
+        Retrieves all members from the latest generation across all species.
+        """
+        members = []
+        for species in self.species:
+            if species.last_generation_index() == self.current_generation_index:
+                species_members = species.get_all_members_from_generation(self.current_generation_index)
+                members.extend([(species.id, member) for member in species_members])
+        return members
 
     @staticmethod
     def _get_individual_signature(individual: Dict[str, Any]) -> str:
@@ -212,24 +267,30 @@ class EvolutionManager:
                 )
                 #mutate offspring
                 child: AgentGenome = asyncio.run(self.mutator.mutate(genome=child, runtime_config=child_mutation_config))
+                #TODO: switch to Phenotype
                 new_species = True
                 next_generation = self.current_generation_index + 1
                 for s in self.species:
-                    if s.belongs_to_species(child, self.current_generation_index) and s != species and s.generation_offset == next_generation:
-                        healthy_child = True
-                        new_species = False
-                        s.add_members([child], generation=next_generation)
-                        break
-                    if s.belongs_to_species(child, self.current_generation_index) and s != species:
-                        healthy_child = False
-                        new_species = False
-                        break
-                    elif s.belongs_to_species(child, self.current_generation_index) and s == species:
-                        healthy_child = True
-                        new_species = False
-                        offsprings.append(child)
-                        break
+                    if s.last_generation_index() >= self.current_generation_index:
+                        if s.belongs_to_species(child, self.current_generation_index) and s != species and s.generation_offset == next_generation:
+                            # child belongs to newly created species along another individual
+                            healthy_child = True
+                            new_species = False
+                            s.add_members([child], generation=next_generation)
+                            break
+                        if s.belongs_to_species(child, self.current_generation_index) and s != species:
+                            # child belongs to another existing species. Abort and retry
+                            healthy_child = False
+                            new_species = False
+                            break
+                        elif s.belongs_to_species(child, self.current_generation_index) and s == species:
+                            # child belongs to the same species as parents
+                            healthy_child = True
+                            new_species = False
+                            offsprings.append(child)
+                            break
                 if new_species:
+                    # child creates a new species
                     healthy_child = True
                     self.species.append(Species([child], generation=next_generation, max_hof_size=self.per_species_hof_size))
         return offsprings
