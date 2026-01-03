@@ -214,40 +214,7 @@ class EvolutionManager:
             obj_id = id(member)
             return f"{fitness}_{obj_id}"
 
-    def _update_hall_of_fame(self):
-        """
-        Updates the per-species Hall of Fame with the best individuals from the current generation.
-        """
-        for species in self.species:
-            if species.last_generation_index() == self.current_generation_index:
-                # Get all members from current generation
-                generation = self.current_generation_index
-                relative_generation = generation - species.generation_offset
-                
-                if relative_generation < 0 or relative_generation >= len(species.generations):
-                    continue
-                
-                members = species.generations[relative_generation]
-                if not members:
-                    continue
-                
-                # Sort by fitness (descending)
-                sorted_members = sorted(members, key=lambda x: x['fitness'], reverse=True)
-                
-                existing_hof = self.species_hall_of_fame.get(species, [])
-                all_candidates = existing_hof + sorted_members
-                
-                # Remove duplicates
-                seen_signatures = set()
-                unique_candidates = []
-                for candidate in all_candidates:
-                    signature = self._get_individual_signature(candidate)
-                    if signature not in seen_signatures:
-                        seen_signatures.add(signature)
-                        unique_candidates.append(candidate)
-                
-                sorted_unique = sorted(unique_candidates, key=lambda x: x['fitness'], reverse=True)
-                self.species_hall_of_fame[species] = sorted_unique[:self.per_species_hof_size]
+
 
     def create_offsprings(self, species, num_offsprings: int):
         """
