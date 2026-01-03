@@ -22,7 +22,15 @@ class EvolutionManager:
                  dataset_manager: Any, # Can be CLUTTRManager or generic
                  num_parents: int = 2,
                  per_species_hof_size: int = 10,
-                 hof_parent_ratio: float = 0.2): #! THIS CAN BE CHANGED AS HYPERPARAMETER, 20% from HoF the rest from the current specie
+                 hof_parent_ratio: float = 0.2, #! THIS CAN BE CHANGED AS HYPERPARAMETER, 20% from HoF the rest from the current specie
+                 top_r = 10, # Top R individuals considered for selection in fallback mechanism for species
+                 c1 = 1.0,  # Coefficient for excess genes in species compatibility
+                 c2 = 1.0,  # Coefficient for disjoint genes in species compatibility
+                 c3 = 0.4,  # Coefficient for average node differences in species compatibility
+                 protection_base = 3,  # Base number of generations for protection of species
+                 adjust_rate_protected_species = 1.5,  # Adjustment rate for protected species
+                 compatibility_threshold = 3.0  # Threshold for species compatibility
+    ):
         """Manages the evolution process across generations and species.
         :param selection_strategy: Strategy to select parents.
         :param survivor_strategy: Strategy to select survivors (e.g. CommaPlus).
@@ -31,6 +39,13 @@ class EvolutionManager:
         :param hof_parent_ratio: Ratio of parents to select from Hall of Fame (0.0 to 1.0).
         :param dataset_manager: Object capable of providing get_batch(size).
         """
+        Species.top_r = top_r
+        Species.c1 = c1
+        Species.c2 = c2
+        Species.c3 = c3
+        Species.protection_base = protection_base
+        Species.adjust_rate_protected_species = adjust_rate_protected_species
+        Species.compatibility_threshold = compatibility_threshold
         self.current_generation_index = 0  # Index of the current generation
         self.species: List[Species] = self._get_initial_species(initial_population) ##FLAG##
         #TODO: initialize the species given a population
@@ -234,6 +249,7 @@ class EvolutionManager:
                 )
                 #mutate offspring
                 child: AgentGenome = asyncio.run(self.mutator.mutate(genome=child, runtime_config=child_mutation_config))
+                child = Phenotype(genome=child, llm_client=)
                 #TODO: switch to Phenotype
                 new_species = True
                 next_generation = self.current_generation_index + 1

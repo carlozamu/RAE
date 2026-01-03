@@ -1,6 +1,8 @@
 from typing import List, Dict, Optional, TYPE_CHECKING, Any, Union
 import hashlib
 
+import numpy as np
+
 from Edoardo.Fitness.fitness import Fitness
 from Edoardo.Genome.agent_genome import AgentGenome
 from Edoardo.Phenotype.phenotype import Phenotype
@@ -13,12 +15,15 @@ class Species:
     top_r = 10
     c1 = 1.0  # Coefficient for excess genes
     c2 = 1.0  # Coefficient for disjoint genes
+    c3 = 0.4  # Coefficient for average node differences
     protection_base = 3  # Base number of generations for protection
     adjust_rate_protected_species = 1.5  # Adjustment rate for protected species
     compatibility_threshold = 3.0  # Threshold for species compatibility
+    species_id_counter = 0
 
     def __init__(self, initial_members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None, max_hof_size: int = 10):
-        self.id = None # TODO: decide how to assign species id
+        self.id = Species.species_id_counter
+        Species.species_id_counter += 1
         self.generations = []
         self.generation_offset = generation # It's the index of the first global generation at which this species appears
         self.selection_strategy = selection_strategy
@@ -121,6 +126,19 @@ class Species:
                 adjusted_count = 1.0
         
         return int(adjusted_count)
+    
+    def _compute_average_weight_difference(self, ind1: AgentGenome, ind2: AgentGenome) -> float:
+        node_list = list(ind1.nodes.keys()) + list(ind2.nodes.keys())
+        node_list = list(set(node_list))
+        common_nodes = 0
+        total_diff = 0.0
+        for node_innovation_number in node_list:
+            if node_innovation_number in ind1.nodes and node_innovation_number in ind2.nodes:
+                common_nodes += 1
+                total_diff += np.sum((np.array(ind1.nodes[node_innovation_number].embedding) - 
+                       np.array(ind2.nodes[node_innovation_number].embedding))**2)
+        return total_diff / common_nodes if common_nodes > 0 else 0.0
+
 
     def belongs_to_species(self, candidate: Phenotype, generation: Optional[int]) -> bool:
         """
@@ -131,13 +149,15 @@ class Species:
         :return: bool
         """
         generation = generation-self.generation_offset if generation is not None else -1
-        population_member = self.generations[generation][0]["member"].genome
+        population_member: Phenotype = self.generations[generation][0]["member"]
         candidate_genome = candidate.genome
-        excess_genes = self._count_excess_genes(population_member, candidate_genome)
-        disjoint_genes = self._count_disjoint_genes(population_member, candidate_genome)
-        max_number_of_genes = max(len(population_member.nodes), len(candidate_genome.nodes))
-        compatibility_distance = (self.c1 * (excess_genes/max_number_of_genes) +
-                                  self.c2 * (disjoint_genes/max_number_of_genes))
+        excess_genes = self._count_excess_genes(population_member.genome, candidate_genome)
+        disjoint_genes = self._count_disjoint_genes(population_member.genome, candidate_genome)
+        max_number_of_genes = max(len(population_member.genome.nodes), len(candidate_genome.nodes))
+        average_weight_diff = self._compute_average_weight_difference(population_member.genome, candidate.genome)
+        compatibility_distance = (Species.c1 * (excess_genes/max_number_of_genes) +
+                                  Species.c2 * (disjoint_genes/max_number_of_genes) +
+                                  Species.c3 * average_weight_diff)
         return compatibility_distance < self.compatibility_threshold
 
     def add_members(self, members: List[Phenotype], generation: Optional[int]) -> None:
@@ -181,7 +201,6 @@ class Species:
             return sorted_members[:self.top_r]
 
     def _count_excess_genes(self, ind1: AgentGenome, ind2: AgentGenome) -> int:
-        #TODO: can this work with current implementation of nodes with string ids?
         member_genes = list(ind1.nodes.keys())
         candidate_genes = list(ind2.nodes.keys())
         member_newest_node_gene = max(member_genes, default=0)
@@ -196,7 +215,6 @@ class Species:
         return excess_genes
 
     def _count_disjoint_genes(self, ind1: AgentGenome, ind2: AgentGenome) -> int:
-        #TODO: can this work with current implementation of nodes with string ids?
         member_genes = list(ind1.nodes.keys())
         candidate_genes = list(ind2.nodes.keys())
         member_newest_node_gene = max(member_genes, default=0)
@@ -208,6 +226,7 @@ class Species:
             if gene < min_newest_gene:
                 if not (gene in member_genes and gene in candidate_genes):
                     disjoint_genes += 1
+        #TODO: extend to edges as well
         return disjoint_genes
 
     def cumulative_fitness(self, generation: Optional[int]) -> float:
