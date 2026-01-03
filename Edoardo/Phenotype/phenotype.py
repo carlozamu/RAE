@@ -1,15 +1,13 @@
 from math import inf
 from typing import Dict, Any
-from Edoardo.Genome.agent_genome import AgentGenome
-from Edoardo.Traits.traits import Trait
-from Edoardo.Utils.LLM import LLM
-from Edoardo.Fitness.fitness import Fitness
+from Genome.agent_genome import AgentGenome
+from Traits.traits import Trait
+from Utils.LLM import LLM
 
 class Phenotype:
-    def __init__(self, genome: AgentGenome, llm_client: LLM, fitness_evaluator=Fitness):
+    def __init__(self, genome: AgentGenome, llm_client: LLM):
         self.genome = genome
         self.llm = llm_client
-        self.fitness_evaluator = fitness_evaluator
 
     def run(self, problem: str) -> Dict[str, Any]:
         # 1. Get Plan
@@ -75,10 +73,3 @@ class Phenotype:
             fitness_evaluator=self.fitness_evaluator,
             problems_pool=None  # This is a copy of the original, so we don't need to pass the problems pool
         )
-
-    def _update_fitness(self, problems_pool: list[dict]):
-        fitness = 0.0
-        for problem in problems_pool:
-            fitness += self.fitness_evaluator.evaluate(self, problem)
-        self.genome.fitness = fitness / len(problems_pool) if problems_pool else inf
-        #print(f"Updated fitness: {self.genome.fitness}")

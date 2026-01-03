@@ -2,7 +2,7 @@
 Simple example demonstrating how to use the strategy configuration module
 for seamless integration with the evolutionary pipeline.
 """
-from Edoardo.Selection.strategy_config import StrategyConfig
+from Selection.strategy_config import StrategyConfig
 
 
 def example_basic_usage():

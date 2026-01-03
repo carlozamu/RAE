@@ -1,11 +1,12 @@
-from Edoardo.Crossover.crossover import Crossover
-from Edoardo.Genome.agent_genome import AgentGenome
-from Edoardo.Mutations.mutator import Mutator
-from Edoardo.Phenotype.phenotype import Phenotype
-from Edoardo.Species.species import Species
-from Edoardo.Fitness.fitness import Fitness
-from Edoardo.Selection.selection import SelectionStrategy
-from Edoardo.Generation_Manager.generation_manager import SurvivorSelectionStrategy
+from Crossover.crossover import Crossover
+from Utils.LLM import LLM
+from Genome.agent_genome import AgentGenome
+from Mutations.mutator import Mutator
+from Phenotype.phenotype import Phenotype
+from Species.species import Species
+from Fitness.fitness import Fitness
+from Selection.selection import SelectionStrategy
+from Generation_Manager.generation_manager import SurvivorSelectionStrategy
 from typing import Dict, List, Optional, Any, Tuple
 import asyncio
 import random
@@ -18,6 +19,7 @@ class EvolutionManager:
                  survivor_strategy: SurvivorSelectionStrategy, 
                  mutator: Mutator,
                  fitness_evaluator: Fitness,
+                 llm_client: LLM,
                  initial_population: List[Phenotype],
                  dataset_manager: Any, # Can be CLUTTRManager or generic
                  num_parents: int = 2,
@@ -55,7 +57,7 @@ class EvolutionManager:
         self.num_parents = num_parents
         self.per_species_hof_size = per_species_hof_size
         self.hof_parent_ratio = hof_parent_ratio
-        
+        self.llm_client = llm_client   
         self.fitness_evaluator = fitness_evaluator
         self.dataset_manager = dataset_manager
     
@@ -249,7 +251,7 @@ class EvolutionManager:
                 )
                 #mutate offspring
                 child: AgentGenome = asyncio.run(self.mutator.mutate(genome=child, runtime_config=child_mutation_config))
-                child = Phenotype(genome=child, llm_client=)
+                child = Phenotype(genome=child, llm_client=self.llm_client, fitness_evaluator=self.fitness_evaluator)
                 #TODO: switch to Phenotype
                 new_species = True
                 next_generation = self.current_generation_index + 1

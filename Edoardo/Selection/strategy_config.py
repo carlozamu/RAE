@@ -10,13 +10,13 @@ Based on test results, these three combinations are recommended:
 3. Elitism + HallOfFame: Best for preserving top solutions
 """
 from typing import Tuple
-from Edoardo.Selection.selection import (
+from Selection.selection import (
     SelectionStrategy,
     TournamentSelection,
     RankBasedSelection,
     ElitismSelection
 )
-from Edoardo.Generation_Manager.generation_manager import (
+from Generation_Manager.generation_manager import (
     SurvivorSelectionStrategy,
     CommaPlusStrategy,
     HallOfFameStrategy,
@@ -25,7 +25,7 @@ from Edoardo.Generation_Manager.generation_manager import (
 # from Edoardo.Evolution_Manager.evolution_manager import EvolutionManager
 import typing
 if typing.TYPE_CHECKING:
-    from Edoardo.Evolution_Manager.evolution_manager import EvolutionManager
+    from Evolution_Manager.evolution_manager import EvolutionManager
 
 
 class StrategyConfig:

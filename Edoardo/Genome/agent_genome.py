@@ -1,8 +1,8 @@
 import uuid
 
 import numpy as np
-from Edoardo.Gene.gene import PromptNode
-from Edoardo.Gene.connection import Connection
+from Gene.gene import PromptNode
+from Gene.connection import Connection
 
 class AgentGenome:
     def __init__(self, nodes_dict: dict[str, PromptNode] = None, connections_dict: dict[str, Connection] = None, start_node_innovation_number:int=None, end_node_innovation_number:int=None, fitness:float=np.inf):

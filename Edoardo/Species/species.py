@@ -3,12 +3,12 @@ import hashlib
 
 import numpy as np
 
-from Edoardo.Fitness.fitness import Fitness
-from Edoardo.Genome.agent_genome import AgentGenome
-from Edoardo.Phenotype.phenotype import Phenotype
+from Fitness.fitness import Fitness
+from Genome.agent_genome import AgentGenome
+from Phenotype.phenotype import Phenotype
 
 if TYPE_CHECKING:
-    from Edoardo.Selection.selection import SelectionStrategy
+    from Selection.selection import SelectionStrategy
 
 class Species:
 

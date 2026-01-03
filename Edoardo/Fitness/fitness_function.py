@@ -1,5 +1,5 @@
 from sklearn.metrics.pairwise import cosine_similarity
-from Edoardo.Utils.LLM import LLM
+from Utils.LLM import LLM
 
 class UnifiedFitnessCalculator:
     """

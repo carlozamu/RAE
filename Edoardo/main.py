@@ -46,16 +46,16 @@ Report
     4) Experiments + Results
 """
 from math import inf
-from Edoardo.Fitness.fitness import Fitness
-from Edoardo.Mutations.mutator import Mutator
-from Edoardo.Data.cluttr import CLUTTRManager
-from Edoardo.Data.cot import CoTManager
+from Fitness.fitness import Fitness
+from Mutations.mutator import Mutator
+from Data.cluttr import CLUTTRManager
+from Data.cot import CoTManager
 from Utils.utilities import _get_next_innovation_number
 from Utils.LLM import LLM
 from ERA.init_pop import initialize_population
-from Edoardo.Evolution_Manager.evolution_manager import EvolutionManager
-from Edoardo.Selection.selection import TournamentSelection
-from Edoardo.Generation_Manager.generation_manager import CommaPlusStrategy
+from Evolution_Manager.evolution_manager import EvolutionManager
+from Selection.selection import TournamentSelection
+from Generation_Manager.generation_manager import CommaPlusStrategy
 
 # Initialize LLM client endpoint, exposes get_embeddings and generate_text methods
 llm_client = LLM()
@@ -77,7 +77,7 @@ print("Fitness, Mutator & Dataset Manager initialized.")
 # Initialize population
 initial_problems_pool = dataset_manager.get_batch(size=3)
 starting_prompt = "You are an expert reasoning AI. Given the input, provide a detailed and accurate response following the instructions."
-population = initialize_population(num_individuals=50, prompt=starting_prompt, llm_client=llm_client, problems_pool=initial_problems_pool)
+population = initialize_population(num_individuals=50, prompt=starting_prompt, problems_pool=initial_problems_pool, llm_client=llm_client, fitness_evaluator=fitness_evaluator)
 _get_next_innovation_number()  # Initialize global innovation number tracker, now it becomes 0, next time the function will be called it will return 1
 print(f"Initialized population with {len(population)} individuals with fitness of {population[0].genome.fitness}.")
 
@@ -91,6 +91,7 @@ evolution_manager = EvolutionManager(
     survivor_strategy=survivor_strategy,
     mutator=mutator,
     fitness_evaluator=fitness_evaluator,
+    llm_client=llm_client,
     initial_population=population,
     dataset_manager=dataset_manager,
     num_parents=2,

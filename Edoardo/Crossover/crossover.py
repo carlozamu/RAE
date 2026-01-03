@@ -1,5 +1,5 @@
 import numpy as np
-from Edoardo.Genome.agent_genome import AgentGenome
+from Genome.agent_genome import AgentGenome
 
 
 class Crossover:

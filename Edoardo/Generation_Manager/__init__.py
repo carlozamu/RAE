@@ -1,4 +1,4 @@
-from Edoardo.Generation_Manager.generation_manager import (
+from Generation_Manager.generation_manager import (
     GenerationManager,
     SurvivorSelectionStrategy,
     CommaPlusStrategy,

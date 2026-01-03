@@ -1,6 +1,6 @@
 import time
-from Edoardo.Utils.LLM import LLM
-from Edoardo.Gene.gene import PromptNode
+from Utils.LLM import LLM
+from Gene.gene import PromptNode
 
 class Trait:
     """

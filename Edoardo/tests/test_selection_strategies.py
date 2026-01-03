@@ -12,13 +12,13 @@ from collections import defaultdict
 # Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from Edoardo.Selection.selection import (
+from Selection.selection import (
     ElitismSelection,
     RankBasedSelection,
     TournamentSelection,
     FitnessProportionateSelection
 )
-from Edoardo.Generation_Manager.generation_manager import (
+from Generation_Manager.generation_manager import (
     CommaPlusStrategy,
     CommaStrategy,
     HallOfFameStrategy,

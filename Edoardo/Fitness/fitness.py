@@ -1,7 +1,7 @@
-from Edoardo.Phenotype.phenotype import Phenotype
-from Edoardo.Utils import LLM
-from Edoardo.Data.cluttr import CLUTTRManager
-from Edoardo.Fitness.fitness_function import UnifiedFitnessCalculator
+from math import inf
+from Utils import LLM
+from Data.cluttr import CLUTTRManager
+from Fitness.fitness_function import UnifiedFitnessCalculator
 
 class Fitness:
     def __init__(self, llm: LLM, use_reasoning: bool = True) -> None:
@@ -14,6 +14,7 @@ class Fitness:
             llm=llm
         )
     
+    from Phenotype.phenotype import Phenotype
     def evaluate(self, individual: Phenotype, problem: dict) -> float:
         """
         Evaluate a single individual on a single problem.
@@ -52,4 +53,10 @@ class Fitness:
         )
         
         return result["loss"]
-    
+
+    def _update_fitness(self, problems_pool: list[dict], phenotype: Phenotype):
+        fitness = 0.0
+        for problem in problems_pool:
+            fitness += self.evaluate(phenotype, problem)
+        phenotype.genome.fitness = fitness / len(problems_pool) if problems_pool else inf
+        #print(f"Updated fitness: {self.genome.fitness}") 

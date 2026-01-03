@@ -1,11 +1,12 @@
 """Initialize population module."""
 import numpy as np
-from Edoardo.Phenotype.phenotype import Phenotype
-from Edoardo.Utils.LLM import LLM
+from Fitness.fitness import Fitness
+from Phenotype.phenotype import Phenotype
+from Utils.LLM import LLM
 from Gene.gene import PromptNode
 from Genome.agent_genome import AgentGenome
 
-def initialize_population(num_individuals: int, prompt: str, llm_client: LLM, problems_pool: list[dict]) -> list[Phenotype]:
+def initialize_population(num_individuals: int, prompt: str, problems_pool: list[dict], llm_client: LLM, fitness_evaluator:Fitness) -> list[Phenotype]:
     """Initialize a population with a given number of individuals."""
     population: list[Phenotype] = []
     
@@ -25,7 +26,7 @@ def initialize_population(num_individuals: int, prompt: str, llm_client: LLM, pr
 
     # Compute fitness for one individual
     phenotype = Phenotype(genome=genome, llm_client=llm_client)
-    phenotype._update_fitness(problems_pool)  # Empty problem pool for initial fitness
+    fitness_evaluator._update_fitness(problems_pool, phenotype)
 
     for _ in range(num_individuals):
         # Clone the genome for each individual

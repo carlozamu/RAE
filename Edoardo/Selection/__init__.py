@@ -1,11 +1,11 @@
-from Edoardo.Selection.selection import (
+from Selection.selection import (
     SelectionStrategy,
     ElitismSelection,
     RankBasedSelection,
     TournamentSelection,
     FitnessProportionateSelection
 )
-from Edoardo.Selection.strategy_config import (
+from Selection.strategy_config import (
     StrategyConfig,
     get_tournament_comma_plus,
     get_rank_based_comma_plus,

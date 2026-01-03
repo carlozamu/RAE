@@ -1,10 +1,10 @@
 import random
 import copy
-from Edoardo.Genome.agent_genome import AgentGenome
-from Edoardo.Gene.gene import PromptNode
-from Edoardo.Gene.connection import Connection
-from Edoardo.Utils.utilities import _get_next_innovation_number
-from Edoardo.Utils.LLM import LLM
+from Genome.agent_genome import AgentGenome
+from Gene.gene import PromptNode
+from Gene.connection import Connection
+from Utils.utilities import _get_next_innovation_number
+from Utils.LLM import LLM
 
 class MutType:
     # Architectural (Global Topology)

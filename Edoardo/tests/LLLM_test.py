@@ -1,8 +1,8 @@
 import asyncio
 from Utils.LLM import LLM
-from Edoardo.Genome.agent_genome import AgentGenome
-from Edoardo.Gene.gene import PromptNode
-from Edoardo.Mutations.mutator import Mutator, MutType
+from Genome.agent_genome import AgentGenome
+from Gene.gene import PromptNode
+from Mutations.mutator import Mutator, MutType
 
 async def test_mutator_logic():
     print("\n=== 🧬 STARTING MUTATOR INTEGRATION TEST ===\n")
