@@ -1,15 +1,16 @@
 from Edoardo.Phenotype.phenotype import Phenotype
+from Edoardo.Utils import LLM
 from fitness_function import UnifiedFitnessCalculator
 
 class Fitness:
-    def __init__(self):
+    def __init__(self, llm_client: LLM) -> None:
         self.calculator = UnifiedFitnessCalculator(
             w_accuracy=2.0,
             w_rationale=2.0,
             w_token_cost=0.001,
-            w_complexity_cost=0.07  #! DA SISTEMARE IN BASE A QUANTO GROSSO è IL GRAFO DI NORMA!
+            w_complexity_cost=0.07,  #! DA SISTEMARE IN BASE A QUANTO GROSSO è IL GRAFO DI NORMA!
+            llm_client=llm_client
         )
-    
     
     def evaluate(self, individual: Phenotype, problem: dict) -> float:
         """

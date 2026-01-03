@@ -1,5 +1,5 @@
 from sklearn.metrics.pairwise import cosine_similarity
-from langchain_huggingface import HuggingFaceEmbeddings
+from Edoardo.Utils.LLM import LLM
 
 class UnifiedFitnessCalculator:
     """
@@ -10,21 +10,18 @@ class UnifiedFitnessCalculator:
     - Complessità Ciclomatica del Grafo del Prompt (NEAT)
     """
     def __init__(self,
-                 model_name="sentence-transformers/all-mpnet-base-v2",
+                 llm:LLM,
                  w_accuracy=2.0,         # Peso per la correttezza della risposta (semantica)
                  w_rationale=2.0,        # Peso per la qualità del ragionamento (se presente)
                  w_token_cost=0.001,     # Penalità per la lunghezza (verbosità)
                  w_complexity_cost=0.07): # Penalità per la complessità del grafo del prompt
-        
-        print(f"Caricamento modello di embedding: {model_name}...")
-        # Inizializzazione del modello di embedding
-        self.embedding_model = HuggingFaceEmbeddings(model_name=model_name)
         
         # Pesi della Fitness Function
         self.w_acc = w_accuracy
         self.w_rat = w_rationale
         self.w_tok = w_token_cost
         self.w_complexity = w_complexity_cost
+        self.llm = llm
         
         print("Modello caricato e calcolatore pronto.")
 
@@ -38,9 +35,9 @@ class UnifiedFitnessCalculator:
             return 0.0
             
         # Creazione embeddings
-        emb1 = self.embedding_model.embed_documents([text1])
-        emb2 = self.embedding_model.embed_documents([text2])
-        
+        emb1 = self.llm.get_embedding([text1])
+        emb2 = self.llm.get_embedding([text2])
+
         # Calcolo similarità coseno
         similarity = cosine_similarity(emb1, emb2)[0][0]
         
@@ -217,3 +214,4 @@ if __name__ == "__main__":
     print(f"Grafo: 10 nodi, 20 archi -> CC = {res3['details']['cyclomatic_complexity']}")
     print(f"Loss: {res3['loss']}")
     print(f"Details: {res3['details']}")
+    

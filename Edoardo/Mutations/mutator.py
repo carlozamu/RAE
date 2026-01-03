@@ -19,39 +19,6 @@ class MutType:
     GENE_REFORMULATE = "gene_reformulate"
     GENE_SPLIT = "gene_split" 
 
-def get_dynamic_config(generation: int, parent_node_count: int) -> dict:
-    """
-    Calculates the mutation probabilities for a specific parent at a specific generation.
-    """
-    # 1. Architectural Decay: 0.9^(gen+1), clamped at 10%
-    # This cools down the topology changes over time.
-    p_arch = max(0.1, 0.9 ** (generation + 1))
-    
-    # 2. Gene Mutation: 1/N rule
-    # Ensures we mutate roughly 1 node per child, regardless of size.
-    # We use 'parent_node_count' because the child size is unknown yet.
-    p_gene = 1.0 / max(1, parent_node_count)
-
-    return {
-        "p_architectural_event": p_arch,
-        "p_mutate_node": p_gene,
-        
-        # Keep relative weights constant (or dynamic if you prefer)
-        "arch_probs": {
-            MutType.ARCH_ADD_NODE: 0.3,
-            MutType.ARCH_ADD_CONN: 0.3,
-            MutType.ARCH_REMOVE_NODE: 0.2,
-            MutType.ARCH_REMOVE_CONN: 0.2,
-        },
-        "gene_probs": {
-            # Content changes are more common than heavy splits
-            MutType.GENE_EXPAND: 0.3,
-            MutType.GENE_REFORMULATE: 0.3,
-            MutType.GENE_SIMPLIFY: 0.2,
-            MutType.GENE_SPLIT: 0.2 
-        }
-    }
-
 class Mutator:
     """
 # Example uses:
@@ -93,6 +60,40 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             MutType.GENE_SPLIT: 0.20  # 20% chance to split if selected
         }
     }
+
+    def get_dynamic_config(generation: int, parent_node_count: int) -> dict:
+        """
+        Calculates the mutation probabilities for a specific parent at a specific generation.
+        """
+        # 1. Architectural Decay: 0.9^(gen+1), clamped at 10%
+        # This cools down the topology changes over time.
+        p_arch = max(0.1, 0.9 ** (generation + 1))
+        
+        # 2. Gene Mutation: 1/N rule
+        # Ensures we mutate roughly 1 node per child, regardless of size.
+        # We use 'parent_node_count' because the child size is unknown yet.
+        p_gene = 1.0 / max(1, parent_node_count)
+
+        return {
+            "p_architectural_event": p_arch,
+            "p_mutate_node": p_gene,
+            
+            # Keep relative weights constant (or dynamic if you prefer)
+            "arch_probs": {
+                MutType.ARCH_ADD_NODE: 0.3,
+                MutType.ARCH_ADD_CONN: 0.3,
+                MutType.ARCH_REMOVE_NODE: 0.2,
+                MutType.ARCH_REMOVE_CONN: 0.2,
+            },
+            "gene_probs": {
+                # Content changes are more common than heavy splits
+                MutType.GENE_EXPAND: 0.3,
+                MutType.GENE_REFORMULATE: 0.3,
+                MutType.GENE_SIMPLIFY: 0.2,
+                MutType.GENE_SPLIT: 0.2 
+            }
+        }
+
 
     def __init__(self, breeder_llm_client: LLM, default_config=None):
         """

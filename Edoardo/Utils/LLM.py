@@ -11,6 +11,7 @@ os.environ["TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL"] = "0"
 import aiohttp
 from sentence_transformers import SentenceTransformer
 
+
 # Singleton instance holder
 _EMBEDDER_INSTANCE = None
 

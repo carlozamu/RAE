@@ -1,6 +1,6 @@
 from Edoardo.Crossover.crossover import Crossover
 from Edoardo.Genome.agent_genome import AgentGenome
-from Edoardo.Mutations.mutator import Mutator, get_dynamic_config
+from Edoardo.Mutations.mutator import Mutator
 from Edoardo.Species.species import Species
 from Edoardo.Fitness.fitness import Fitness
 from Edoardo.Selection.selection import SelectionStrategy
@@ -15,6 +15,8 @@ class EvolutionManager:
     def __init__(self, 
                  selection_strategy: SelectionStrategy, 
                  survivor_strategy: SurvivorSelectionStrategy, 
+                 mutator: Mutator,
+                 fitness_evaluator: Fitness,
                  num_parents: int = 2,
                  per_species_hof_size: int = 10,
                  hof_parent_ratio: float = 0.2): #! THIS CAN BE CHANGED AS HYPERPARAMETER, 20% from HoF the rest from the current specie
@@ -29,12 +31,13 @@ class EvolutionManager:
         self.species = []
         self.selection_strategy = selection_strategy
         self.survivor_strategy = survivor_strategy
+        self.mutator = mutator
         self.num_parents = num_parents
         self.per_species_hof_size = per_species_hof_size
         self.hof_parent_ratio = hof_parent_ratio
         self.per_species_hof_size = per_species_hof_size
         self.hof_parent_ratio = hof_parent_ratio
-        self.fitness_evaluator = Fitness()
+        self.fitness_evaluator = fitness_evaluator
         
         # Dummy Prompt Pool for Development
         self.problem_pool = [
@@ -231,12 +234,12 @@ class EvolutionManager:
                 parents = self.select_parents(species, self.num_parents)
                 child = Crossover.create_offspring(parents[0].genome, parents[1].genome)
                 # Calculate dynamic mutation probabilities
-                child_mutation_config = get_dynamic_config(
+                child_mutation_config = self.mutator.get_dynamic_config(
                     generation=self.current_generation_index, 
                     parent_node_count=len(child.nodes)
                 )
                 #mutate offspring
-                child: AgentGenome = asyncio.run(Mutator.mutate(genome=child, runtime_config=child_mutation_config))
+                child: AgentGenome = asyncio.run(self.mutator.mutate(genome=child, runtime_config=child_mutation_config))
                 new_species = True
                 next_generation = self.current_generation_index + 1
                 for s in self.species:

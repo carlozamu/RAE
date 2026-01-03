@@ -43,6 +43,8 @@ Report
     3) Speciation + Evolution Management
     4) Experiments + Results
 """
+from Edoardo.Fitness.fitness import Fitness
+from Edoardo.Mutations.mutator import Mutator
 from Utils.utilities import _get_next_innovation_number
 from Utils.LLM import LLM
 from ERA.init_pop import initialize_population
@@ -50,6 +52,9 @@ from ERA.init_pop import initialize_population
 # Initialize LLM client endpoint, exposes get_embeddings and generate_text methods
 llm_client = LLM()
 print("LLM client initialized.")
+fitness_evaluator = Fitness(llm_client=llm_client)
+mutator = Mutator(breeder_llm_client=llm_client)
+print("Fitness & Mutator initialized.")
 
 # Initialize population
 starting_prompt = "You are an expert reasoning AI. Given the input, provide a detailed and accurate response following the instructions."
