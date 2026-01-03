@@ -75,7 +75,8 @@ class UnifiedFitnessCalculator:
                 generated_ans, target_ans, 
                 generated_rat=None, target_rat=None, 
                 num_nodes=1, num_edges=0,
-                similarity_threshold=0.8):
+                similarity_threshold=0.8,
+                custom_accuracy=None):
         """
         Calcola la loss totale considerando:
         1. Correttezza della risposta (con threshold)
@@ -91,6 +92,7 @@ class UnifiedFitnessCalculator:
             num_nodes: Numero di nodi nel grafo NEAT
             num_edges: Numero di archi nel grafo NEAT
             similarity_threshold: Soglia per considerare una risposta corretta
+            custom_accuracy: (Optional) Float [0.0, 1.0]. Se fornito, sovrascrive il calcolo della similarità semantica.
             
         Returns:
             Dict con 'loss' totale e 'details' dei componenti
@@ -99,15 +101,25 @@ class UnifiedFitnessCalculator:
         details = {}
         
         # --- 1. Valutazione Risposta ---
-        ans_similarity = self._calculate_semantic_similarity(generated_ans, target_ans)
-        
-        # Logica Threshold Risposta
-        if ans_similarity >= similarity_threshold:
-            ans_loss = 0.0
-            is_ans_correct = True
+        if custom_accuracy is not None:
+            # Uso manuale (es. CLUTTR)
+            ans_similarity = float(custom_accuracy)
+            if ans_similarity >= 1.0: # Strict binary usually
+                ans_loss = 0.0
+                is_ans_correct = True
+            else:
+                ans_loss = 1.0 - ans_similarity
+                is_ans_correct = False
         else:
-            ans_loss = 1.0 - ans_similarity
-            is_ans_correct = False
+            ans_similarity = self._calculate_semantic_similarity(generated_ans, target_ans)
+            
+            # Logica Threshold Risposta
+            if ans_similarity >= similarity_threshold:
+                ans_loss = 0.0
+                is_ans_correct = True
+            else:
+                ans_loss = 1.0 - ans_similarity
+                is_ans_correct = False
             
         weighted_ans_cost = ans_loss * self.w_acc
         

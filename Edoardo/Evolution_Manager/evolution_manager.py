@@ -17,6 +17,7 @@ class EvolutionManager:
                  survivor_strategy: SurvivorSelectionStrategy, 
                  mutator: Mutator,
                  fitness_evaluator: Fitness,
+                 dataset_manager: Any, # Can be CLUTTRManager or generic
                  num_parents: int = 2,
                  per_species_hof_size: int = 10,
                  hof_parent_ratio: float = 0.2): #! THIS CAN BE CHANGED AS HYPERPARAMETER, 20% from HoF the rest from the current specie
@@ -26,6 +27,7 @@ class EvolutionManager:
         :param num_parents: Number of parents to use for creating offspring.
         :param per_species_hof_size: Maximum number of best individuals to maintain per species in Hall of Fame.
         :param hof_parent_ratio: Ratio of parents to select from Hall of Fame (0.0 to 1.0).
+        :param dataset_manager: Object capable of providing get_batch(size).
         """
         self.current_generation_index = 0  # Index of the current generation
         self.species = []
@@ -35,40 +37,16 @@ class EvolutionManager:
         self.num_parents = num_parents
         self.per_species_hof_size = per_species_hof_size
         self.hof_parent_ratio = hof_parent_ratio
-        self.per_species_hof_size = per_species_hof_size
-        self.hof_parent_ratio = hof_parent_ratio
-        self.fitness_evaluator = fitness_evaluator
         
-        # Dummy Prompt Pool for Development
-        self.problem_pool = [
-            {"input": "What is 2+2?", "target": "4", "rationale": "2 plus 2 equals 4."},
-            {"input": "Capital of France?", "target": "Paris", "rationale": "Paris is the capital of France."},
-            {"input": "What implies rain?", "target": "Clouds", "rationale": "Clouds often imply rain."},
-            {"input": "Color of the sky?", "target": "Blue", "rationale": "The sky is blue due to Rayleigh scattering."},
-            {"input": "What is 5*5?", "target": "25", "rationale": "5 times 5 is 25."},
-            {"input": "Opposite of cold?", "target": "Hot", "rationale": "Hot is the opposite of cold."},
-            {"input": "First letter of alphabet?", "target": "A", "rationale": "A is the first letter."},
-            {"input": "Do birds fly?", "target": "Yes", "rationale": "Most birds can fly."},
-            {"input": "Is fire hot?", "target": "Yes", "rationale": "Fire produces heat."},
-            {"input": "Planet we live on?", "target": "Earth", "rationale": "We live on Earth."}
-        ]
-        self.pool_index = 0
+        self.fitness_evaluator = fitness_evaluator
+        self.dataset_manager = dataset_manager
+
 
     def get_problem_pool(self, size: int = 3) -> List[Dict[str, str]]:
         """
-        Returns a list of problems (dict with 'input', 'target', 'rationale') from the pool.
-        Ensures rotation to avoid immediate reuse if possible.
+        Returns a list of problems from the dataset manager.
         """
-        if size > len(self.problem_pool):
-            return self.problem_pool # Return all if size is too big
-            
-        # Select batch
-        batch = []
-        for _ in range(size):
-            batch.append(self.problem_pool[self.pool_index])
-            self.pool_index = (self.pool_index + 1) % len(self.problem_pool)
-            
-        return batch
+        return self.dataset_manager.get_batch(size=size)
 
     async def create_new_generation(self):
         """
