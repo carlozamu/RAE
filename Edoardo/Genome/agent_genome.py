@@ -94,6 +94,8 @@ class AgentGenome:
         """
         new_genome = AgentGenome()
         new_genome.fitness = self.fitness
+        new_genome.start_node_innovation_number = self.start_node_innovation_number
+        new_genome.end_node_innovation_number = self.end_node_innovation_number
         
         # Copy all nodes (preserving IDs)
         for node in self.nodes.values():
@@ -299,7 +301,7 @@ class AgentGenome:
                       f"{len(cycle_edges)} edges remain in cycles.")
                 break
         
-        if iteration >= max_iterations:
+        if iteration >= max_iterations and len(self.connections) > 0:
             print(f"Warning: Max iterations reached in remove_cycles.")
         
         return edges_disabled

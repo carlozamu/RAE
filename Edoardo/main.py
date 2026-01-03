@@ -110,12 +110,14 @@ async def run_evolution():
     # 4. Main Evolution Loop
     print("\n🚀 Starting Evolution Loop...")
     start_time = time.time()
-    
-    while True:
+    x=True
+    while x==True:
         try:
             # A. Create Next Generation (Includes Selection, Mutation, Evaluation)
             # This returns the NEW population list (Species list or individual list depending on your manager return)
             new_gen = await evolution_manager.create_new_generation()
+            x=False
+
             
             # B. Statistics Calculation
             current_gen = evolution_manager.current_generation_index

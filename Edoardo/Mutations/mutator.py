@@ -287,7 +287,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         # 2. Execute Mutation if valid pair found
         if source_node and valid_targets:
             target_innovation_number = random.choice(valid_targets)
-            print(f"Global: Adding connection {genome.nodes[source_node].name[:15]} -> {genome.nodes[target_innovation_number].name[:15]}")
+            #print(f"Global: Adding connection {genome.nodes[source_node].name} -> {genome.nodes[target_innovation_number].name}")
             genome.add_connection(source_node, target_innovation_number)
         else:
             print("Global: Graph is fully saturated. No new connections possible.")
@@ -331,7 +331,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         # 3. Execute
         if candidates:
             target_conn = random.choice(candidates)
-            print(f"Global: Removing connection {target_conn.in_node[:8]}... -> {target_conn.out_node[:8]}...")
+            #print(f"Global: Removing connection {target_conn.in_node}... -> {target_conn.out_node}...")
             target_conn.enabled = False
         else:
             print("Global: No removable connections found (all are critical bridges).")
@@ -376,7 +376,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
     # --- Internal Logic ---
     async def _apply_global_mutation(self, genome: AgentGenome, mutation_type: MutType):
         """Dispatches architectural mutations."""
-        print(f"Applying Global Mutation: {mutation_type}")
+        #print(f"Applying Global Mutation: {mutation_type}")
         
         if mutation_type == MutType.ARCH_ADD_NODE:
             await self._handle_add_node(genome)
@@ -416,7 +416,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         Hybrid Mutation: Splits one node into two sequential nodes.
         Strategy: Cell Division (Preserve A, Create B, Link A->B)
         """
-        print(f"Splitting node: {genome.nodes[target_node].name}")
+        #print(f"Splitting node: {genome.nodes[target_node].name}")
         
         # 1. Ask LLM to split content
         name1, prompt1, name2, prompt2 = await self._split_instructions(genome.nodes[target_node].instruction, genome.nodes[target_node].name)
@@ -469,7 +469,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         current_len = len(node.instruction)
         safe_max_tokens = int((current_len / 3) * 1.5) + 64
 
-        print(f"Applying {style} mutation to node: {node.name}\nOriginal: {node.instruction}")
+        #print(f"Applying {style} mutation to node: {node.name}\nOriginal: {node.instruction}")
 
         expand_prompt = f"""Task: Expansion.
 Rewrite the instruction to be more detailed by breaking it down into specific, actionable steps.
@@ -542,7 +542,7 @@ Original: {node.instruction}
         response: str = await self.llm.generate_text(prompt, max_tokens=safe_max_tokens, temperature=0.2, primer=primer)
         
         if response and len(response.strip()) > 5:
-            print(f"New {style} Instruction: \n{response}\n\n")
+            #print(f"New {style} Instruction: \n{response}\n\n")
             node.instruction = response.strip()
             node.embedding = self.llm.get_embedding(response)
         else:
@@ -553,7 +553,7 @@ Original: {node.instruction}
         Asks for a bridging step.
         Returns: (name, instruction)
         """
-        print(f"Applying bridge mutation to nodes: {name1} -> {name2},\nOriginal Instructions: \n1:{inst1}\n2:{inst2}")
+        #print(f"Applying bridge mutation to nodes: {name1} -> {name2},\nOriginal Instructions: \n1:{inst1}\n2:{inst2}")
         prompt = f"""Task: Create a missing intermediate step that logically connects Step A and Step C.
 Format: Name: <name> | Instr: <instruction>
 
@@ -578,16 +578,16 @@ Format: Name: <name> | Instr: <instruction>
         primer = "[Step B] Name:"
         # We prime the model with "Name:" so it completes the rest
         response: str = await self.llm.generate_text(prompt, max_tokens=128, temperature=0.2, primer=primer)
-        print(f"New Node:\nName:{response}\n\n")
+        #print(f"New Node:\nName:{response}\n\n")
         
         # Robust Parsing
         try:
             # We prepend "Name:" because the model completes it
             full_text = "Name:" + response 
             name = full_text.split("Name:")[1].split("| Instr:")[0].strip()
-            print(f"Name: {name}")
+            #print(f"Name: {name}")
             instruction = full_text.split("Instr:")[1].strip()
-            print(f"Instruction: {instruction}")
+            #print(f"Instruction: {instruction}")
             embedding = self.llm.get_embedding(instruction)
             return PromptNode(name, instruction, embedding=embedding, innovation_number=_get_next_innovation_number())
         except:
@@ -599,7 +599,7 @@ Format: Name: <name> | Instr: <instruction>
 
         Returns: (name1, prompt1, name2, prompt2)
         """
-        print(f"\nApplying split mutation to instruction:\n {original_instruction}\n")
+        #print(f"\nApplying split mutation to instruction:\n {original_instruction}\n")
         prompt = f"""Task: Split the Original Instruction into two sequential, atomic steps (Part 1 then Part 2).
 Format:
 1. Name: <name> | Instr: <instruction>
@@ -624,7 +624,7 @@ Original Instr: {original_instruction}
         primer = "1. Name:"
         
         response: str = await self.llm.generate_text(prompt, max_tokens=512, temperature=0.2, primer=primer)
-        print(f"Split Instructions:\n{response}\n\n")
+        #print(f"Split Instructions:\n{response}\n\n")
         
         try:
             # Parsing logic for "1. Name: ... | Instr: ..."
@@ -642,10 +642,10 @@ Original Instr: {original_instruction}
             n2 = part2[0].replace("2. Name:", "").strip()
             i2 = part2[1].strip()
 
-            print(f"Name 1: {n1}")
-            print(f"Instruction 1: {i1}")
-            print(f"Name 2: {n2}")
-            print(f"Instruction 2: {i2}")   
+            # print(f"Name 1: {n1}")
+            # print(f"Instruction 1: {i1}")
+            # print(f"Name 2: {n2}")
+            # print(f"Instruction 2: {i2}")   
             
             return n1, i1, n2, i2
         except:

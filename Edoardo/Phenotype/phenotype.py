@@ -55,7 +55,7 @@ class Phenotype:
         # 4. Final Result
         final_answer = trait_answers[execution_order[-1][0].id]
         
-        return {
+        final_object = {
             "answer": final_answer,
             "stats": {
                 "total_tokens": total_in_tokens + total_out_tokens,
@@ -65,6 +65,9 @@ class Phenotype:
                 "steps": len(execution_order)
             }
         }
+
+        #print(f"\n\n\nPhenotype run completed. Answer: {final_object}\n\n\n")
+        return final_object
 
     def deep_copy(self):
         return Phenotype(

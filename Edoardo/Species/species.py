@@ -267,19 +267,73 @@ class Species:
         return disjoint_genes
     
     def _count_different_edges(self, ind1: AgentGenome, ind2: AgentGenome) -> int:
-        ind1_edges = list(ind1.connections.keys())
-        ind2_edges = list(ind2.connections.keys())
-        different_edges = list(set(ind1_edges).difference(set(ind2_edges)).union(set(ind2_edges).difference(set(ind1_edges))))
-        return len(different_edges)
+        try:
+            # Safety Check: Ensure inputs are valid Genomes
+            if not hasattr(ind1, 'connections') or not hasattr(ind2, 'connections'):
+                print(f"⚠️ Error: Invalid inputs to _count_different_edges. types: {type(ind1)}, {type(ind2)}")
+                return 0
+
+            ind1_edges = set(ind1.connections.keys())
+            ind2_edges = set(ind2.connections.keys())
+            
+            # Symmetric Difference: (A - B) U (B - A)
+            # Find edges that are unique to either ind1 or ind2
+            unique_to_1 = ind1_edges.difference(ind2_edges)
+            unique_to_2 = ind2_edges.difference(ind1_edges)
+            
+            total_diff = len(unique_to_1) + len(unique_to_2)
+            
+            # Optional Debug (Uncomment if needed)
+            # print(f"   [DiffEdges] Ind1: {len(ind1_edges)}, Ind2: {len(ind2_edges)} -> Diff: {total_diff}")
+            
+            return total_diff
+
+        except Exception as e:
+            print(f"❌ Error in _count_different_edges: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0
 
     def cumulative_fitness(self, generation: Optional[int]) -> float:
-        generation = generation-self.generation_offset if generation is not None else -1
-        return sum(member["fitness"] for member in self.generations[generation])
+        try:
+            # Calculate internal index
+            internal_idx = generation - self.generation_offset if generation is not None else -1
+
+            members = self.generations[internal_idx]
+            print(f"Calculating cumulative fitness for Species {self.id} at Gen {generation} with {len(members)} members.")
+            total_fitness = 0.0
+            valid_members = 0
+
+            for i, member in enumerate(members):
+                # CASE A: Standard Dict format {'member': Phenotype, 'fitness': float}
+                if isinstance(member, dict) and "fitness" in member:
+                    total_fitness += member["fitness"]
+                    valid_members += 1
+                
+                # CASE B: Raw Phenotype Object (Fallback)
+                elif hasattr(member, 'genome') and hasattr(member.genome, 'fitness'):
+                    total_fitness += member.genome.fitness
+                    valid_members += 1
+                    
+                # CASE C: Data Corruption (Integer Index found)
+                elif isinstance(member, (int, float)):
+                    print(f"   🛑 CORRUPTION DETECTED in Species {self.id}, Gen {generation}: Member at index {i} is type {type(member)} (Value: {member}). Skipping.")
+                    # We skip it to prevent the crash, but this data is effectively lost/invalid
+                    
+                else:
+                    print(f"   ⚠️ Unknown member format in Species {self.id}: {type(member)}")
+
+            print(f"   [CumulativeFit] Species {self.id} Gen {generation}: {total_fitness:.2f} (from {valid_members} valid members)")
+            return total_fitness
+
+        except Exception as e:
+            print(f"❌ Error in cumulative_fitness (Spec: {self.id}): {e}")
+            return 0.0
 
     def member_count(self, generation: Optional[int]) -> int:
         generation = generation-self.generation_offset if generation is not None else -1
         return len(self.generations[generation])
-
+    
     def first_generation_index(self) -> int:
         return self.generation_offset
 

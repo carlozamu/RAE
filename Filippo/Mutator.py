@@ -432,7 +432,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         current_len = len(node.instruction)
         safe_max_tokens = int((current_len / 3) * 1.5) + 64
 
-        print(f"Applying {style} mutation to node: {node.name}\nOriginal: {node.instruction}")
+        #print(f"Applying {style} mutation to node: {node.name}\nOriginal: {node.instruction}")
 
         expand_prompt = f"""Task: Expansion.
 Rewrite the instruction to be more detailed by breaking it down into specific, actionable steps.

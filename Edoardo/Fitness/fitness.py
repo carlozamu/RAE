@@ -60,3 +60,12 @@ class Fitness:
             fitness += await self.evaluate(phenotype, problem)
         phenotype.genome.fitness = fitness / len(problems_pool) if problems_pool else inf
         #print(f"Updated fitness: {self.genome.fitness}") 
+
+    async def evaluate_population(self, population: list[Phenotype], problem_pool: list[dict]):
+        """
+        Evaluates a list of phenotypes against a pool of problems.
+        Updates the .fitness attribute of each phenotype with the average loss.
+        """
+        for individual in population:
+            
+            await self._update_fitness(problem_pool, individual)
