@@ -28,7 +28,8 @@ class EvolutionManager:
                  top_r = 10, # Top R individuals considered for selection in fallback mechanism for species
                  c1 = 1.0,  # Coefficient for excess genes in species compatibility
                  c2 = 1.0,  # Coefficient for disjoint genes in species compatibility
-                 c3 = 0.4,  # Coefficient for average node differences in species compatibility
+                 c3 = 0.4,  # Coefficient for different edges count in species compatibility
+                 c4 = 0.2,  # Coefficient for average node differences in species compatibility
                  protection_base = 3,  # Base number of generations for protection of species
                  adjust_rate_protected_species = 1.5,  # Adjustment rate for protected species
                  compatibility_threshold = 3.0  # Threshold for species compatibility
@@ -45,6 +46,7 @@ class EvolutionManager:
         Species.c1 = c1
         Species.c2 = c2
         Species.c3 = c3
+        Species.c4 = c4
         Species.protection_base = protection_base
         Species.adjust_rate_protected_species = adjust_rate_protected_species
         Species.compatibility_threshold = compatibility_threshold
@@ -146,7 +148,7 @@ class EvolutionManager:
 
                     # Get current generation members for this species
                     current_members = species.get_all_members_from_generation(self.current_generation_index)
-                    current_phenotypes = [m['member'] for m in current_members]
+                    current_phenotypes = [item['member'] for item in current_members]
 
                     # Evaluate ALL candidates (Current + Offsprings) on the NEW problem pool
                     # This ensures fairness as the problem set changes/rotates.
@@ -160,7 +162,7 @@ class EvolutionManager:
                     # Note: This updates the dicts used for selection, effectively re-evaluating parents.
                     # We create NEW dicts to avoid modifying the historical record in species.generations if that's preferred,
                     # BUT for CommaPlus/Elitism, we need comparable fitness.
-                    current_pop_dicts = [{"member": p, "fitness": p.fitness} for p in current_phenotypes]
+                    current_pop_dicts = [{"member": p, "fitness": p.genome.fitness} for p in current_phenotypes]
 
                     # Determine target size (keep total population constant)
                     target_size = len(offsprings)
