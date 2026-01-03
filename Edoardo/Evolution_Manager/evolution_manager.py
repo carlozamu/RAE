@@ -175,7 +175,7 @@ class EvolutionManager:
         
         return normalized_species_counts
         
-    async def create_new_generation(self) -> list[Tuple[str, Phenotype]]:
+    async def create_new_generation(self) -> list[Tuple[int, Phenotype]]:
         """
         Creates a new generation of individuals based on the fitness of the current generation.
         Uses the injected survivor_strategy to select the next generation for each species.
@@ -306,15 +306,15 @@ class EvolutionManager:
                 count += 1
         return count
 
-    def get_latest_generation(self):
+    def get_latest_generation(self) -> list[Tuple[int, Phenotype]]:
         """
         Retrieves all members from the latest generation across all species.
         """
-        members = []
+        members: List[Tuple[int, Phenotype]] = []
         for species in self.species:
             if species.last_generation_index() == self.current_generation_index:
                 species_members = species.get_all_members_from_generation(self.current_generation_index)
-                members.extend([(species.id, member) for member in species_members])
+                members.extend([(species.id, member['member']) for member in species_members])
         return members
 
     @staticmethod

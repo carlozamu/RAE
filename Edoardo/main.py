@@ -117,8 +117,6 @@ async def run_evolution():
         # A. Create Next Generation (Includes Selection, Mutation, Evaluation)
         # This returns the NEW population list (Species list or individual list depending on your manager return)
         new_gen = await evolution_manager.create_new_generation()
-        x=False
-
         
         # B. Statistics Calculation
         current_gen = evolution_manager.current_generation_index
@@ -128,12 +126,9 @@ async def run_evolution():
         total_loss = 0.0
         total_individuals = 0
         
-        # Flatten species list if necessary, or iterate if it returns tuples
-        # Assuming new_gen is list of (species_id, individual) based on your previous code
-        # If new_gen is just a list of individuals, remove the tuple unpacking
         for item in new_gen:
             # Handle both list formats safely
-            individual = item[1] if isinstance(item, tuple) else item
+            individual = item[1]
             
             fit = individual.genome.fitness
             total_individuals += 1
