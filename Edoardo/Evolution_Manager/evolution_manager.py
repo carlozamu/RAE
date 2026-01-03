@@ -262,7 +262,7 @@ class EvolutionManager:
 
             # D. Prepare Data for Selection Strategy
             # ---------------------------------------
-            offspring_dicts = [{"member": child, "fitness": child.fitness} for child in offsprings]
+            offspring_dicts = [{"member": child, "fitness": child.genome.fitness} for child in offsprings]
             
             # Parent dicts need updated fitness from the re-evaluation above
             current_pop_dicts = [{"member": p, "fitness": p.genome.fitness} for p in current_phenotypes]

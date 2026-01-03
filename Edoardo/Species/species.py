@@ -192,12 +192,12 @@ class Species:
         disjoint_genes = self._count_disjoint_genes(population_member.genome, candidate_genome)
         max_number_of_genes = max(len(population_member.genome.nodes), len(candidate_genome.nodes))
         average_weight_diff = self._compute_average_weight_difference(population_member.genome, candidate.genome)
-        max_number_of_edges = max(len(population_member.genome.connections), len(candidate_genome.connections))
+        max_number_of_edges = max(len(population_member.genome.connections), len(candidate_genome.connections),1)
         different_edges = self._count_different_edges(population_member.genome, candidate_genome)
         compatibility_distance = (Species.c1 * (excess_genes/max_number_of_genes) +
                                   Species.c2 * (disjoint_genes/max_number_of_genes) +
-                                  Species.c3 * (different_edges/max_number_of_genes) +
-                                  Species.c4 * (average_weight_diff/max_number_of_edges))
+                                  Species.c3 * (different_edges/max_number_of_edges) +
+                                  Species.c4 * (average_weight_diff))
         return compatibility_distance < self.compatibility_threshold
 
     def add_members(self, members: List[Phenotype], generation: Optional[int]) -> None:

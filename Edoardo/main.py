@@ -1,4 +1,12 @@
 """
+Cose da loggare:
+    generation number
+    best-worse fitness per generation
+    average fitness per species per generation
+    average number of nodes and connections per individual per generation
+    species count per generation
+    paragone con prompt engineering
+
 ERA: Evolving Reasoning Agents
 Main Execution Script
 """
@@ -50,119 +58,107 @@ async def run_evolution():
     print("\n--- Initializing ERA System ---")
     
     # 1. Initialize Components
-    try:
-        # Initialize LLM
-        # NOTE: Ensure your LLM class loads the Embedder on CPU to avoid VRAM conflict!
-        llm_client = LLM() 
-        print("LLM client initialized.")
+    # Initialize LLM
+    # NOTE: Ensure your LLM class loads the Embedder on CPU to avoid VRAM conflict!
+    llm_client = LLM() 
+    print("LLM client initialized.")
 
-        fitness_evaluator = Fitness(llm=llm_client, use_reasoning=USE_REASONING)
-        mutator = Mutator(breeder_llm_client=llm_client)
+    fitness_evaluator = Fitness(llm=llm_client, use_reasoning=USE_REASONING)
+    mutator = Mutator(breeder_llm_client=llm_client)
 
-        # Dataset Selection
-        if USE_REASONING:
-            print("Reasoning Evaluation ENABLED. Using CoT-Collection.")
-            dataset_manager = CoTManager(split="train")
-        else:
-            print("Reasoning Evaluation DISABLED. Using CLUTTR Dataset.")
-            dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
+    # Dataset Selection
+    if USE_REASONING:
+        print("Reasoning Evaluation ENABLED. Using CoT-Collection.")
+        dataset_manager = CoTManager(split="train")
+    else:
+        print("Reasoning Evaluation DISABLED. Using CLUTTR Dataset.")
+        dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
 
-        # 2. Population Initialization
-        initial_problems_pool = dataset_manager.get_batch(size=3)
-        starting_prompt = "You are an expert reasoning AI. Given the input, provide a detailed and accurate response following the instructions."
-        
-        print("🌱 Seeding Population...")
-        population = await initialize_population(
-            num_individuals=50, 
-            prompt=starting_prompt, 
-            problems_pool=initial_problems_pool, 
-            llm_client=llm_client, 
-            fitness_evaluator=fitness_evaluator
-        )
-        
-        # Reset/Init innovation counter
-        _get_next_innovation_number() 
-        print(f"Initialized population: {len(population)} agents. Best Gen 0 Fitness: {population[0].genome.fitness:.4f}")
+    # 2. Population Initialization
+    initial_problems_pool = dataset_manager.get_batch(size=3)
+    starting_prompt = "You are an expert reasoning AI. Given the input, provide a detailed and accurate response following the instructions."
+    
+    print("🌱 Seeding Population...")
+    population = await initialize_population(
+        num_individuals=50, 
+        prompt=starting_prompt, 
+        problems_pool=initial_problems_pool, 
+        llm_client=llm_client, 
+        fitness_evaluator=fitness_evaluator
+    )
+    
+    # Reset/Init innovation counter
+    _get_next_innovation_number() 
+    print(f"Initialized population: {len(population)} agents. Best Gen 0 Fitness: {population[0].genome.fitness:.4f}")
 
-        # 3. Evolution Strategy Setup
-        selection_strategy = TournamentSelection(tournament_size=7)  
-        survivor_strategy = CommaPlusStrategy()
+    # 3. Evolution Strategy Setup
+    selection_strategy = TournamentSelection(tournament_size=7)  
+    survivor_strategy = CommaPlusStrategy()
 
-        evolution_manager = EvolutionManager(
-            selection_strategy=selection_strategy,
-            survivor_strategy=survivor_strategy,
-            mutator=mutator,
-            fitness_evaluator=fitness_evaluator,
-            llm_client=llm_client,
-            initial_population=population,
-            dataset_manager=dataset_manager,
-            num_parents=2,
-            per_species_hof_size=5,
-            hof_parent_ratio=0.2
-        )
-        print("Evolution Manager Ready.")
-
-    except Exception as e:
-        print(f"❌ Initialization Failed: {e}")
-        force_cleanup()
-        return
+    evolution_manager = EvolutionManager(
+        selection_strategy=selection_strategy,
+        survivor_strategy=survivor_strategy,
+        mutator=mutator,
+        fitness_evaluator=fitness_evaluator,
+        llm_client=llm_client,
+        initial_population=population,
+        dataset_manager=dataset_manager,
+        num_parents=2,
+        per_species_hof_size=5,
+        hof_parent_ratio=0.2
+    )
+    print("Evolution Manager Ready.")
 
     # 4. Main Evolution Loop
     print("\n🚀 Starting Evolution Loop...")
     start_time = time.time()
     x=True
     while x==True:
-        try:
-            # A. Create Next Generation (Includes Selection, Mutation, Evaluation)
-            # This returns the NEW population list (Species list or individual list depending on your manager return)
-            new_gen = await evolution_manager.create_new_generation()
-            x=False
+        # A. Create Next Generation (Includes Selection, Mutation, Evaluation)
+        # This returns the NEW population list (Species list or individual list depending on your manager return)
+        new_gen = await evolution_manager.create_new_generation()
+        x=False
 
-            
-            # B. Statistics Calculation
-            current_gen = evolution_manager.current_generation_index
-            
-            best_loss = inf
-            worse_loss = -inf
-            total_loss = 0.0
-            total_individuals = 0
-            
-            # Flatten species list if necessary, or iterate if it returns tuples
-            # Assuming new_gen is list of (species_id, individual) based on your previous code
-            # If new_gen is just a list of individuals, remove the tuple unpacking
-            for item in new_gen:
-                # Handle both list formats safely
-                individual = item[1] if isinstance(item, tuple) else item
-                
-                fit = individual.genome.fitness
-                total_individuals += 1
-                total_loss += fit
-
-                if fit < best_loss: best_loss = fit
-                if fit > worse_loss: worse_loss = fit
-
-            average_loss = total_loss / total_individuals if total_individuals > 0 else 0.0
-            
-            # C. Logging to Console
-            print(f"Gen {current_gen} | Avg Loss: {average_loss:.4f} | Best: {best_loss:.4f} | Worst: {worse_loss:.4f}")
-
-            # D. Stop Criteria Checks
-            if best_loss <= TARGET_LOSS:
-                print(f"\n🏆 SUCCESS: Target Loss ({TARGET_LOSS}) reached! Final Best: {best_loss:.4f}")
-                break
-                
-            if (time.time() - start_time) > MAX_TIME_SECONDS:
-                print(f"\n🛑 STOP: Maximum time limit ({MAX_TIME_SECONDS}s) reached.")
-                break
-                
-            if current_gen >= MAX_GENERATIONS:
-                print(f"\n🛑 STOP: Maximum generations ({MAX_GENERATIONS}) reached.")
-                break
         
-        except Exception as e:
-            print(f"\n⚠️ Error during Generation {evolution_manager.current_generation_index}: {e}")
-            traceback.print_exc()
-            break # Break loop on error to allow cleanup
+        # B. Statistics Calculation
+        current_gen = evolution_manager.current_generation_index
+        
+        best_loss = inf
+        worse_loss = -inf
+        total_loss = 0.0
+        total_individuals = 0
+        
+        # Flatten species list if necessary, or iterate if it returns tuples
+        # Assuming new_gen is list of (species_id, individual) based on your previous code
+        # If new_gen is just a list of individuals, remove the tuple unpacking
+        for item in new_gen:
+            # Handle both list formats safely
+            individual = item[1] if isinstance(item, tuple) else item
+            
+            fit = individual.genome.fitness
+            total_individuals += 1
+            total_loss += fit
+
+            if fit < best_loss: best_loss = fit
+            if fit > worse_loss: worse_loss = fit
+
+        average_loss = total_loss / total_individuals if total_individuals > 0 else 0.0
+        
+        # C. Logging to Console
+        print(f"Gen {current_gen} | Avg Loss: {average_loss:.4f} | Best: {best_loss:.4f} | Worst: {worse_loss:.4f}")
+
+        # D. Stop Criteria Checks
+        if best_loss <= TARGET_LOSS:
+            print(f"\n🏆 SUCCESS: Target Loss ({TARGET_LOSS}) reached! Final Best: {best_loss:.4f}")
+            break
+            
+        if (time.time() - start_time) > MAX_TIME_SECONDS:
+            print(f"\n🛑 STOP: Maximum time limit ({MAX_TIME_SECONDS}s) reached.")
+            break
+            
+        if current_gen >= MAX_GENERATIONS:
+            print(f"\n🛑 STOP: Maximum generations ({MAX_GENERATIONS}) reached.")
+            break
 
     print("--- Evolution Finished ---")
 
@@ -172,9 +168,6 @@ if __name__ == "__main__":
         asyncio.run(run_evolution())
     except KeyboardInterrupt:
         print("\n\n👋 Manual Interruption Detected (CTRL+C).")
-    except Exception as main_e:
-        print(f"\n❌ Fatal Error: {main_e}")
-        traceback.print_exc()
     finally:
         # This ALWAYS runs, ensuring VRAM is freed
         force_cleanup()
