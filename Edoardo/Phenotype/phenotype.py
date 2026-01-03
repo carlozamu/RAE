@@ -1,143 +1,69 @@
-import time
-from typing import Callable
-
-
-from Carlo.model.llm_client import LLMClient
+from typing import Dict, Any
 from Edoardo.Genome.agent_genome import AgentGenome
 from Edoardo.Traits.traits import Trait
-
+from Edoardo.Utils.LLM import LLM
+from Edoardo.Fitness.fitness import Fitness
 
 class Phenotype:
-    """
-    Executable wrapper around an AgentGenome. Builds Traits from PromptNodes
-    and executes them sequentially using the provided LLM client.
-    
-    Gestisce anche:
-    - Ciclo di vita (age, alive, min_age)
-    - Logging delle chiamate LLM per debug
-    """
-
-    def __init__(
-        self,
-        genome: AgentGenome,
-        llm_client: LLMClient,
-        template: str | None = None,
-        min_age: int = 3,
-    ):
+    def __init__(self, genome: AgentGenome, llm_client: LLM, fitness_evaluator=Fitness):
         self.genome = genome
         self.llm = llm_client
-        self.template = template
-        self.traits = self._build_traits()
+        self.fitness_evaluator = fitness_evaluator
 
-        # Ciclo di vita
-        self.age: int = 0
-        self.alive: bool = True
-        self.min_age: int = min_age  # Iterazioni minime prima di poter essere eliminato
-
-        # Debug logging: lista di {node_id, node_name, prompt, response, timestamp}
-        self.call_log: list[dict] = []
-
-    def _build_traits(self) -> list[Trait]:
-        chain = self.genome.get_execution_order()
-        return [Trait(node, self.llm, self.template) for node in chain]
-
-    # --- Ciclo di vita ---
-
-    def step(self) -> None:
-        """Incrementa l'età del fenotipo di 1 iterazione."""
-        self.age += 1
-
-    def can_be_eliminated(self) -> bool:
-        """Verifica se il fenotipo può essere eliminato (ha superato età minima)."""
-        return self.age >= self.min_age
-
-    def kill(self) -> None:
-        """Marca il fenotipo come morto."""
-        self.alive = False
-
-    # --- Evaluate (commentato per uso futuro) ---
-    
-    # def evaluate(
-    #     self,
-    #     fitness_fn: Callable[[str, str], float],
-    #     target: str,
-    #     initial_input: str = "",
-    # ) -> float:
-    #     """
-    #     Esegue il phenotype e calcola la fitness.
-    #     Salva il risultato in genome.fitness.
-    #     
-    #     Args:
-    #         fitness_fn: Funzione che prende (output, target) e ritorna score.
-    #         target: La risposta attesa.
-    #         initial_input: Input iniziale per la catena.
-    #     
-    #     Returns:
-    #         Lo score di fitness calcolato.
-    #     """
-    #     outputs = self.run(initial_input=initial_input)
-    #     final_output = outputs[-1] if outputs else ""
-    #     score = fitness_fn(final_output, target)
-    #     self.genome.fitness = score
-    #     return score
-
-    # --- Esecuzione ---
-
-    def run(self, initial_input: str = "", answer_only: bool = True) -> list[str]:
-        """
-        Execute the chain of traits. Each output becomes the next input.
-        Returns the list of outputs from each node.
-        Popola call_log con ogni chiamata per debug.
-        """
-        outputs = []
-        current_input = initial_input
-        for trait in self.traits:
-            # Costruisce il prompt per logging
-            prompt = trait.template.format(
-                instruction=trait.node.instruction, input=current_input
-            )
-            
-            current_output = trait.run(current_input)
-            
-            # Log della chiamata
-            self.call_log.append({
-                "node_id": trait.node.id,
-                "node_name": trait.node.name,
-                "prompt": prompt,
-                "response": current_output,
-                "timestamp": time.time(),
-            })
-            if answer_only:
-                # Extract at most two bullet lines; fallback to first sentence of cleaned text.
-                bullets = []
-                for ln in current_output.splitlines():
-                    stripped = ln.strip()
-                    lower = stripped.lower()
-                    if not stripped:
-                        continue
-                    if lower.startswith(("user", "input", "answer")):
-                        continue
-                    if stripped.startswith(("-", "*", "•")):
-                        bullets.append(stripped)
-                    if len(bullets) >= 2:
-                        break
-                if bullets:
-                    cleaned = "\n".join(bullets[:2])
-                    outputs.append(cleaned)
-                    current_input = cleaned
-                else:
-                    cleaned_text = " ".join(
-                        ln.strip()
-                        for ln in current_output.splitlines()
-                        if ln.strip() and not ln.strip().lower().startswith(("user", "input", "answer"))
-                    )
-                    first_sentence = cleaned_text.split(".")[0].strip() if cleaned_text else ""
-                    outputs.append(first_sentence or cleaned_text)
-                    current_input = first_sentence or cleaned_text
-            else:
-                outputs.append(current_output)
-                current_input = current_output
+    def run(self, problem: str) -> Dict[str, Any]:
+        # 1. Get Plan
+        # execution_order is [(NodeObject, [Parent_IDs]), ...]
+        execution_order = self.genome.get_execution_order() 
         
-        # Incrementa età dopo ogni run
-        self.step()
-        return outputs
+        # 2. Lightweight Memory (ID -> Answer String)
+        trait_answers: Dict[str, str] = {}
+        
+        total_in_tokens = 0
+        total_out_tokens = 0
+        total_time = 0.0
+
+        # 3. Execution Loop
+        for node, parent_ids in execution_order:
+            
+            # A. Build Context
+            context_parts = [f"Problem:\n{problem}\n"]
+            
+            if parent_ids:
+                context_parts.append("Reasoning Context:")
+                for pid in parent_ids:
+                    # We only fetch the string, saving memory
+                    if pid in trait_answers:
+                        # OPTIONAL: You might want to prefix this with node.name 
+                        # if you have access to the parent node object easily.
+                        # For now, raw answer is efficient.
+                        context_parts.append(trait_answers[pid])
+            
+            full_context = "\n".join(context_parts)
+            
+            # B. Execute (Transient)
+            trait = Trait(node, self.llm)
+            # Fix: renamed 'time' to 'duration' to avoid shadowing module
+            in_t, out_t, duration, answer = trait.execute(full_context)
+            
+            # C. Store Result
+            trait_answers[node.id] = answer
+            
+            # D. Accumulate Stats
+            total_in_tokens += in_t
+            total_out_tokens += out_t
+            total_time += duration
+
+        # 4. Final Result
+        final_answer = trait_answers[execution_order[-1][0].id]
+        
+        return {
+            "answer": final_answer,
+            "stats": {
+                "total_tokens": total_in_tokens + total_out_tokens,
+                "input_tokens": total_in_tokens,
+                "output_tokens": total_out_tokens,
+                "time_taken": total_time,
+                "steps": len(execution_order)
+            }
+        }
+    

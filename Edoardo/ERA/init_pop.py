@@ -28,7 +28,7 @@ def initialize_population(num_individuals: int, prompt: str, llm_client: LLM) ->
 
     for _ in range(num_individuals):
         # Clone the genome for each individual
-        new_phenotype = phenotype.deep_copy() ##FLAG##
+        new_phenotype = phenotype.deep_copy()
         population.append(new_phenotype)
 
     return population
