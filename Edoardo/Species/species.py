@@ -13,6 +13,8 @@ class Species:
     top_r = 10
     c1 = 1.0  # Coefficient for excess genes
     c2 = 1.0  # Coefficient for disjoint genes
+    protection_base = 3  # Base number of generations for protection
+    adjust_rate_protected_species = 1.5  # Adjustment rate for protected species
     compatibility_threshold = 3.0  # Threshold for species compatibility
 
     def __init__(self, initial_members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None, max_hof_size: int = 10):
@@ -24,7 +26,7 @@ class Species:
         self.hall_of_fame: List[Dict[str, Any]] = []
         
         # We assume members already have their fitness evaluated before being added to species
-        members: List[Dict[str, Union[Phenotype, float]]] = [{"member": member, "fitness": member.fitness} for member in initial_members]
+        members: List[Dict[str, Union[Phenotype, float]]] = [{"member": member, "fitness": member.genome.fitness} for member in initial_members]
         self.generations.append(members)
 
     def update_hall_of_fame(self) -> None:
@@ -82,14 +84,41 @@ class Species:
         :param generation: Current generation index
         :return: Adjusted number of offspring for this species
         """
-        generation = generation - self.generation_offset
+        species_age = generation - self.generation_offset
+        
+        # Note: cumulative_fitness and member_count expect global generation index
         cumulative_fit = self.cumulative_fitness(generation)
         member_count = self.member_count(generation)
         
         if average_fitness > 0:
             adjusted_count = cumulative_fit / average_fitness
         else:
-            adjusted_count = member_count
+            adjusted_count = float(member_count)
+            
+        # Calculate average complexity (nodes + connections)
+        if 0 <= species_age < len(self.generations):
+            current_members = self.generations[species_age]
+            if current_members:
+                total_complexity = sum(
+                    len(m["member"].genome.nodes) + len(m["member"].genome.connections)
+                    for m in current_members
+                )
+                avg_complexity = total_complexity / len(current_members)
+            else:
+                avg_complexity = 0.0
+        else:
+            avg_complexity = 0.0
+
+        # Protection mechanism for young and complex species
+        # Base protection of 5 generations, plus complexity factor
+        protection_limit = Species.protection_base + (avg_complexity * 0.5)
+        
+        if species_age < protection_limit:
+            # Boost adjusted count to prevent premature extinction
+            adjusted_count *= Species.adjust_rate_protected_species
+            # Ensure at least one offspring
+            if adjusted_count < 1.0:
+                adjusted_count = 1.0
         
         return int(adjusted_count)
 
@@ -126,7 +155,7 @@ class Species:
             target_list = self.generations[-1]
 
         for member in members:
-            target_list.append({"member": member, "fitness": member.fitness})
+            target_list.append({"member": member, "fitness": member.genome.fitness})
     
     def get_top_members(self, generation: Optional[int] = None) -> List[Dict[str, Phenotype | float]]:
         """
