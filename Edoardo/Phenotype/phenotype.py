@@ -38,7 +38,7 @@ class Phenotype:
         self.call_log: list[dict] = []
 
     def _build_traits(self) -> list[Trait]:
-        chain = self.genome.get_linear_chain()
+        chain = self.genome.get_execution_order()
         return [Trait(node, self.llm, self.template) for node in chain]
 
     # --- Ciclo di vita ---

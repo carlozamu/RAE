@@ -1,19 +1,20 @@
-from Carlo.model.llm_client import LLMClient
+from Edoardo.Utils.LLM import LLM
 from Edoardo.Gene.gene import PromptNode
 
 
 class Trait:
     """
-    Wrapper around a PromptNode that knows how to execute it via an LLMClient.
+    Wrapper around a PromptNode that knows how to execute it via an LLM client.
     """
 
-    def __init__(self, node: PromptNode, llm_client: LLMClient, template: str | None = None):
+    def __init__(self, node: PromptNode, llm_client: LLM, context: str):
         self.node = node
         self.llm = llm_client
-        # Simple default template if none provided.
-        # We avoid the string "User" to keep LLM outputs cleaner for downstream nodes.
-        self.template = template or "{instruction}\nInput: {input}\nAnswer:"
+        self.context = context
+        self.answer = self.get_response()
+        self.in_tokens = (len(self.node.instruction) + len(self.context)) // 4  # Approximate token count
+        self.out_tokens = len(self.answer) // 4  # Approximate token count
 
-    def run(self, user_input: str) -> str:
-        prompt = self.template.format(instruction=self.node.instruction, input=user_input)
-        return self.llm.generate(prompt)
+    def get_response(self) -> str:
+        prompt = f"""Context: {self.context}\nInstruction: {self.node.instruction}\n"""
+        return self.llm.generate_text(user_prompt=prompt, primer="Answer: ")

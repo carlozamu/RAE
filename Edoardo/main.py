@@ -45,6 +45,7 @@ Report
     3) Speciation + Evolution Management
     4) Experiments + Results
 """
+from math import inf
 from Edoardo.Fitness.fitness import Fitness
 from Edoardo.Mutations.mutator import Mutator
 from Edoardo.Data.cluttr import CLUTTRManager
@@ -60,7 +61,7 @@ from Edoardo.Generation_Manager.generation_manager import CommaPlusStrategy
 llm_client = LLM()
 print("LLM client initialized.")
 
-USE_REASONING = True # Toggle to enable/disable reasoning evaluation
+USE_REASONING = False # Toggle to enable/disable reasoning evaluation
 fitness_evaluator = Fitness(llm=llm_client, use_reasoning=USE_REASONING)
 mutator = Mutator(breeder_llm_client=llm_client)
 # Choose Dataset based on Reasoning flag
@@ -75,13 +76,13 @@ print("Fitness, Mutator & Dataset Manager initialized.")
 
 # Initialize population
 starting_prompt = "You are an expert reasoning AI. Given the input, provide a detailed and accurate response following the instructions."
-population = initialize_population(num_individuals=50, prompt=starting_prompt)
+population = initialize_population(num_individuals=50, prompt=starting_prompt, llm_client=llm_client)
 _get_next_innovation_number()  # Initialize global innovation number tracker, now it becomes 0, next time the function will be called it will return 1
-print(f"Initialized population with {len(population)} individuals with fitness of {population[0].fitness}.")
+print(f"Initialized population with {len(population)} individuals with fitness of {population[0].genome.fitness}.")
 
 # Strategy Configuration
-selection_strategy = TournamentSelection(tournament_size=3)    # <----- SET as HYPERPARAMETER?
-survivor_strategy = CommaPlusStrategy(elite_size=2) # Elitism   # <----- SET as HYPERPARAMETER?
+selection_strategy = TournamentSelection(tournament_size=5)    # <----- SET as HYPERPARAMETER?
+survivor_strategy = CommaPlusStrategy(elite_size=3) # Elitism   # <----- SET as HYPERPARAMETER?
 
 # Initialize Evolution Manager
 evolution_manager = EvolutionManager(
@@ -89,6 +90,7 @@ evolution_manager = EvolutionManager(
     survivor_strategy=survivor_strategy,
     mutator=mutator,
     fitness_evaluator=fitness_evaluator,
+    initial_population=population,
     dataset_manager=dataset_manager,
     num_parents=2,
     per_species_hof_size=5,
@@ -105,7 +107,7 @@ import time
 from Edoardo.Species.species import Species
 
 # Configuration for Stop Criteria
-MAX_GENERATIONS = 50
+MAX_GENERATIONS = 500
 MAX_TIME_SECONDS = 3600 * 10 # 10 Hours
 TARGET_LOSS = 0.20 # Based on threshold analysis (Perfect ~0.15)
 
@@ -113,45 +115,30 @@ async def run_evolution():
     print("\n--- Starting Evolution ---")
     start_time = time.time()
     
-    # 1. Bootstrap EvolutionManager with Initial Population
-    # Create the first species from the initialized population
-    initial_species = Species(
-        members=population, 
-        generation=0, 
-        selection_strategy=selection_strategy,
-        max_hof_size=5
-    )
-    evolution_manager.species.append(initial_species)
-    
-    # 2. Evaluate Initial Population
-    # We need baseline fitness before the first evolution step
-    print("Evaluating initial population...")
-    initial_problems = evolution_manager.get_problem_pool(size=3)
-    fitness_evaluator.evaluate_population(population, initial_problems)
-    
-    # Log Initial Stats
-    best_init = min(p.fitness for p in population)
-    avg_init = sum(p.fitness for p in population) / len(population)
-    print(f"Gen 0 (Initial): Best Loss={best_init:.4f}, Avg Loss={avg_init:.4f}")
-
     # 3. Evolution Loop
     while True:
-        current_gen = evolution_manager.current_generation_index
+        new_gen = evolution_manager.create_new_generation()
         
         # Check Stop Conditions
-        # Note: We check fitness achieved in the PREVIOUS step (or initial step)
-        # We need to get stats from the manager or species
+        # Note: We check fitness achieved in the current step
         
         # Get global best fitness across all species
-        best_loss = 1.0
-        for s in evolution_manager.species:
-            if s.last_generation_index() == current_gen:
-                mems = s.get_all_members_from_generation(current_gen)
-                if mems:
-                    # mems is list of dict {'member': ..., 'fitness': ...}
-                    s_best = min(m['fitness'] for m in mems)
-                    if s_best < best_loss:
-                        best_loss = s_best
+        best_loss = inf
+        worse_loss = -inf
+        average_loss = 0.0
+        total_individuals = 0
+        current_gen = evolution_manager.current_generation_index
+        for species_id, individual in new_gen: ##FLAG## statistiche
+            total_individuals += 1
+            average_loss += individual.genome.fitness
+
+            if individual.genome.fitness < best_loss:
+                best_loss = individual.genome.fitness
+
+            if individual.genome.fitness > worse_loss:
+                worse_loss = individual.genome.fitness
+
+        average_loss /= total_individuals if total_individuals > 0 else 1
         
         # Logging
         # print(f"Gen {current_gen} Completed. Global Best Loss: {best_loss:.4f}")

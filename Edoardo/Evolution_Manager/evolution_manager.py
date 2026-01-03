@@ -1,11 +1,12 @@
 from Edoardo.Crossover.crossover import Crossover
 from Edoardo.Genome.agent_genome import AgentGenome
 from Edoardo.Mutations.mutator import Mutator
+from Edoardo.Phenotype.phenotype import Phenotype
 from Edoardo.Species.species import Species
 from Edoardo.Fitness.fitness import Fitness
 from Edoardo.Selection.selection import SelectionStrategy
 from Edoardo.Generation_Manager.generation_manager import SurvivorSelectionStrategy
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import asyncio
 import random
 import hashlib
@@ -17,6 +18,7 @@ class EvolutionManager:
                  survivor_strategy: SurvivorSelectionStrategy, 
                  mutator: Mutator,
                  fitness_evaluator: Fitness,
+                 initial_population: List[Phenotype],
                  dataset_manager: Any, # Can be CLUTTRManager or generic
                  num_parents: int = 2,
                  per_species_hof_size: int = 10,
@@ -30,7 +32,7 @@ class EvolutionManager:
         :param dataset_manager: Object capable of providing get_batch(size).
         """
         self.current_generation_index = 0  # Index of the current generation
-        self.species = []
+        self.species = _get_initial_species(initial_population) ##FLAG##
         self.selection_strategy = selection_strategy
         self.survivor_strategy = survivor_strategy
         self.mutator = mutator
@@ -48,7 +50,7 @@ class EvolutionManager:
         """
         return self.dataset_manager.get_batch(size=size)
 
-    async def create_new_generation(self):
+    async def create_new_generation(self)-> list[Tuple[str, Phenotype]]: # tuple(species_name, individual):
         """
         Creates a new generation of individuals based on the fitness of the current generation.
         Uses the injected survivor_strategy to select the next generation for each species.
@@ -118,6 +120,8 @@ class EvolutionManager:
         # Advance generation index
         self.current_generation_index += 1
 
+        return ##FLAG##
+
     def get_active_species_count(self):
         """
         Counts the number of species that have members in the current generation.
@@ -127,16 +131,6 @@ class EvolutionManager:
             if species.last_generation_index() == self.current_generation_index:
                 count += 1
         return count
-
-    def get_latest_generation(self):
-        """
-        Retrieves all members from the latest generation across all species.
-        """
-        members = []
-        for species in self.species:
-            if species.last_generation_index() == self.current_generation_index:
-                members.extend(species.get_all_members())
-        return None
 
     @staticmethod
     def _get_individual_signature(individual: Dict[str, Any]) -> str:
