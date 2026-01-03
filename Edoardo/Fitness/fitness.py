@@ -17,14 +17,10 @@ class Fitness:
     def evaluate(self, individual: Phenotype, problem: dict) -> float:
         """
         Evaluate a single individual on a single problem.
-        """
-        # Run individual
-        # Note: individual.run is SYNC as per Edoardo/Phenotype/phenotype.py
-        # It takes initial_input and answer_only=True
-        
+        """        
         try:
-            outputs = individual.run(initial_input=problem['question'], answer_only=True)
-            generated_ans = outputs[-1] if outputs else ""
+            outputs = individual.run(initial_input=problem['question'])
+            generated_ans = outputs['answer']
         except Exception as e:
             print(f"Error executing phenotype: {e}")
             generated_ans = ""
@@ -56,23 +52,4 @@ class Fitness:
         )
         
         return result["loss"]
-
-    def evaluate_population(self, population: list[Phenotype], problem_pool: list[dict]):
-        """
-        Evaluates a list of phenotypes against a pool of problems.
-        Updates the .fitness attribute of each phenotype with the average loss.
-        """
-        for individual in population:
-            total_loss = 0.0
-            
-            for problem in problem_pool:
-                loss = self.evaluate(individual, problem)
-                total_loss += loss
-            
-            # Average loss
-            if problem_pool:
-                avg_loss = total_loss / len(problem_pool)
-            else:
-                avg_loss = 1.0 # Default high loss if no problems
-            
-            individual.fitness = avg_loss
+    

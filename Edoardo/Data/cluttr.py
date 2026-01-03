@@ -92,9 +92,7 @@ Story:
 Query:
 What is the family relationship of {query}?
 
-Answer using a single English kinship noun like "aunt", "father", "niece", "grandmother", etc.
-Return ONLY the single word relationship, nothing else.
-"""
+Answer with only a single English kinship noun."""
 
     @classmethod
     def normalize_text_simple(cls, text: str) -> str:
