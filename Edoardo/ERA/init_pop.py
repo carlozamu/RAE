@@ -5,7 +5,7 @@ from Edoardo.Utils.LLM import LLM
 from Gene.gene import PromptNode
 from Genome.agent_genome import AgentGenome
 
-def initialize_population(num_individuals: int, prompt: str, llm_client: LLM) -> list[Phenotype]:
+def initialize_population(num_individuals: int, prompt: str, llm_client: LLM, problems_pool: list[dict]) -> list[Phenotype]:
     """Initialize a population with a given number of individuals."""
     population: list[Phenotype] = []
     
@@ -25,6 +25,7 @@ def initialize_population(num_individuals: int, prompt: str, llm_client: LLM) ->
 
     # Compute fitness for one individual
     phenotype = Phenotype(genome=genome, llm_client=llm_client)
+    phenotype._update_fitness(problems_pool)  # Empty problem pool for initial fitness
 
     for _ in range(num_individuals):
         # Clone the genome for each individual

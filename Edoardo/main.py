@@ -75,8 +75,9 @@ else:
 print("Fitness, Mutator & Dataset Manager initialized.")
 
 # Initialize population
+initial_problems_pool = dataset_manager.get_batch(size=3)
 starting_prompt = "You are an expert reasoning AI. Given the input, provide a detailed and accurate response following the instructions."
-population = initialize_population(num_individuals=50, prompt=starting_prompt, llm_client=llm_client)
+population = initialize_population(num_individuals=50, prompt=starting_prompt, llm_client=llm_client, problems_pool=initial_problems_pool)
 _get_next_innovation_number()  # Initialize global innovation number tracker, now it becomes 0, next time the function will be called it will return 1
 print(f"Initialized population with {len(population)} individuals with fitness of {population[0].genome.fitness}.")
 

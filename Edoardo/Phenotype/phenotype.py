@@ -1,3 +1,4 @@
+from math import inf
 from typing import Dict, Any
 from Edoardo.Genome.agent_genome import AgentGenome
 from Edoardo.Traits.traits import Trait
@@ -66,4 +67,18 @@ class Phenotype:
                 "steps": len(execution_order)
             }
         }
-    
+
+    def deep_copy(self):
+        return Phenotype(
+            genome=self.genome.copy(),
+            llm_client=self.llm,
+            fitness_evaluator=self.fitness_evaluator,
+            problems_pool=None  # This is a copy of the original, so we don't need to pass the problems pool
+        )
+
+    def _update_fitness(self, problems_pool: list[dict]):
+        fitness = 0.0
+        for problem in problems_pool:
+            fitness += self.fitness_evaluator.evaluate(self, problem)
+        self.genome.fitness = fitness / len(problems_pool) if problems_pool else inf
+        #print(f"Updated fitness: {self.genome.fitness}")
