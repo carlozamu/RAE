@@ -90,6 +90,7 @@ class Species:
         :param generation: Current generation index
         :return: Adjusted number of offspring for this species
         """
+        print(f"Calculating adjusted offspring for Species {self.id} at Gen {generation}, with average fitness {average_fitness:.4f}")
         species_age = generation - self.generation_offset
         
         # Note: cumulative_fitness and member_count expect global generation index

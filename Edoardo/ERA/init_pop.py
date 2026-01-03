@@ -6,7 +6,7 @@ from Utils.LLM import LLM
 from Gene.gene import PromptNode
 from Genome.agent_genome import AgentGenome
 
-def initialize_population(num_individuals: int, prompt: str, problems_pool: list[dict], llm_client: LLM, fitness_evaluator:Fitness) -> list[Phenotype]:
+async def initialize_population(num_individuals: int, prompt: str, problems_pool: list[dict], llm_client: LLM, fitness_evaluator:Fitness) -> list[Phenotype]:
     """Initialize a population with a given number of individuals."""
     population: list[Phenotype] = []
     
@@ -26,7 +26,7 @@ def initialize_population(num_individuals: int, prompt: str, problems_pool: list
 
     # Compute fitness for one individual
     phenotype = Phenotype(genome=genome, llm_client=llm_client)
-    fitness_evaluator._update_fitness(problems_pool, phenotype)
+    await fitness_evaluator._update_fitness(problems_pool, phenotype)
 
     for _ in range(num_individuals):
         # Clone the genome for each individual

@@ -54,9 +54,9 @@ class Fitness:
         
         return result["loss"]
 
-    def _update_fitness(self, problems_pool: list[dict], phenotype: Phenotype):
+    async def _update_fitness(self, problems_pool: list[dict], phenotype: Phenotype):
         fitness = 0.0
         for problem in problems_pool:
-            fitness += self.evaluate(phenotype, problem)
+            fitness += await self.evaluate(phenotype, problem)
         phenotype.genome.fitness = fitness / len(problems_pool) if problems_pool else inf
         #print(f"Updated fitness: {self.genome.fitness}") 

@@ -25,7 +25,7 @@ class LLM:
         global _EMBEDDER_INSTANCE
         if _EMBEDDER_INSTANCE is None:
             print("Loading Embedding Model (SentenceTransformer)...")
-            _EMBEDDER_INSTANCE = SentenceTransformer('all-MiniLM-L6-v2')
+            _EMBEDDER_INSTANCE = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
             print("Embedding Model Loaded.")
         self.embedder = _EMBEDDER_INSTANCE
 

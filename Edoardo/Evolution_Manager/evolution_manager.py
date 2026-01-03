@@ -255,7 +255,7 @@ class EvolutionManager:
                 #mutate offspring
                 child: AgentGenome = await self.mutator.mutate(genome=child, runtime_config=child_mutation_config)
                 child_phenotype = Phenotype(genome=child, llm_client=self.llm_client)
-                self.fitness_evaluator._update_fitness(problems_pool=problem_pool, phenotype=child_phenotype)
+                await self.fitness_evaluator._update_fitness(problems_pool=problem_pool, phenotype=child_phenotype)
                 #TODO: switch to Phenotype
                 new_species = True
                 next_generation = self.current_generation_index + 1
