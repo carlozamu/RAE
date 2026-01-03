@@ -51,13 +51,13 @@ class EvolutionManager:
         Species.adjust_rate_protected_species = adjust_rate_protected_species
         Species.compatibility_threshold = compatibility_threshold
         self.current_generation_index = 0  # Index of the current generation
+        self.per_species_hof_size = per_species_hof_size
         self.species: List[Species] = self._get_initial_species(initial_population) ##FLAG##
         #TODO: initialize the species given a population
         self.selection_strategy = selection_strategy
         self.survivor_strategy = survivor_strategy
         self.mutator = mutator
         self.num_parents = num_parents
-        self.per_species_hof_size = per_species_hof_size
         self.hof_parent_ratio = hof_parent_ratio
         self.llm_client = llm_client   
         self.fitness_evaluator = fitness_evaluator
@@ -77,7 +77,7 @@ class EvolutionManager:
         for individual in initial_population:
             added_to_species = False
             for species in species_list:
-                if species.belongs_to_species(individual.genome, self.current_generation_index):
+                if species.belongs_to_species(individual, self.current_generation_index):
                     species.add_members([individual], generation=self.current_generation_index)
                     added_to_species = True
                     break
@@ -128,7 +128,7 @@ class EvolutionManager:
 
         # Generate Problem Pool for this generation
         # We use the same pool for all species to ensure fair comparison
-        problem_pool = self.get_problem_pool(size=3) # Configurable size
+        problem_pool: List[Dict[str, str]] = self.get_problem_pool(size=3) # Configurable size
 
         # TODO: Is there a better way to calculate total average fitness?
         total_fitness = 0
@@ -144,7 +144,7 @@ class EvolutionManager:
                 new_species_count = species_counts.get(species, 0)
                 if new_species_count > 0:
                     # Create offspring
-                    offsprings = self.create_offsprings(species, new_species_count)
+                    offsprings = await self.create_offsprings(species, new_species_count, problem_pool=problem_pool)
 
                     # Get current generation members for this species
                     current_members = species.get_all_members_from_generation(self.current_generation_index)
@@ -235,7 +235,7 @@ class EvolutionManager:
 
 
 
-    def create_offsprings(self, species, num_offsprings: int):
+    async def create_offsprings(self, species, num_offsprings: int, problem_pool:List[Dict[str, str]]):
         """
         Creates num_offsprings offspring from a given species.
         """
@@ -247,39 +247,41 @@ class EvolutionManager:
                 parents = self.select_parents(species, self.num_parents)
                 child = Crossover.create_offspring(parents[0].genome, parents[1].genome)
                 # Calculate dynamic mutation probabilities
-                child_mutation_config = self.mutator.get_dynamic_config(
+                child_mutation_config: dict = self.mutator.get_dynamic_config(
                     generation=self.current_generation_index, 
                     parent_node_count=len(child.nodes)
                 )
+                
                 #mutate offspring
-                child: AgentGenome = asyncio.run(self.mutator.mutate(genome=child, runtime_config=child_mutation_config))
-                child = Phenotype(genome=child, llm_client=self.llm_client, fitness_evaluator=self.fitness_evaluator)
+                child: AgentGenome = await self.mutator.mutate(genome=child, runtime_config=child_mutation_config)
+                child_phenotype = Phenotype(genome=child, llm_client=self.llm_client)
+                self.fitness_evaluator._update_fitness(problems_pool=problem_pool, phenotype=child_phenotype)
                 #TODO: switch to Phenotype
                 new_species = True
                 next_generation = self.current_generation_index + 1
                 for s in self.species:
                     if s.last_generation_index() >= self.current_generation_index:
-                        if s.belongs_to_species(child, self.current_generation_index) and s != species and s.generation_offset == next_generation:
+                        if s.belongs_to_species(child_phenotype, self.current_generation_index) and s != species and s.generation_offset == next_generation:
                             # child belongs to newly created species along another individual
                             healthy_child = True
                             new_species = False
-                            s.add_members([child], generation=next_generation)
+                            s.add_members([child_phenotype], generation=next_generation)
                             break
-                        if s.belongs_to_species(child, self.current_generation_index) and s != species:
+                        if s.belongs_to_species(child_phenotype, self.current_generation_index) and s != species:
                             # child belongs to another existing species. Abort and retry
                             healthy_child = False
                             new_species = False
                             break
-                        elif s.belongs_to_species(child, self.current_generation_index) and s == species:
+                        elif s.belongs_to_species(child_phenotype, self.current_generation_index) and s == species:
                             # child belongs to the same species as parents
                             healthy_child = True
                             new_species = False
-                            offsprings.append(child)
+                            offsprings.append(child_phenotype)
                             break
                 if new_species:
                     # child creates a new species
                     healthy_child = True
-                    self.species.append(Species([child], generation=next_generation, max_hof_size=self.per_species_hof_size))
+                    self.species.append(Species([child_phenotype], generation=next_generation, max_hof_size=self.per_species_hof_size))
         return offsprings
 
     def select_parents(self, species: Species, num_parents: int) -> List:

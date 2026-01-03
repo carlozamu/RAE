@@ -82,8 +82,8 @@ _get_next_innovation_number()  # Initialize global innovation number tracker, no
 print(f"Initialized population with {len(population)} individuals with fitness of {population[0].genome.fitness}.")
 
 # Strategy Configuration
-selection_strategy = TournamentSelection(tournament_size=5)    # <----- SET as HYPERPARAMETER?
-survivor_strategy = CommaPlusStrategy(elite_size=3) # Elitism   # <----- SET as HYPERPARAMETER?
+selection_strategy = TournamentSelection(tournament_size=7)  
+survivor_strategy = CommaPlusStrategy()
 
 # Initialize Evolution Manager
 evolution_manager = EvolutionManager(
@@ -106,7 +106,7 @@ print("Evolution Manager initialized.")
 # Main Loop ------------ TODO: DA SISTEMARE
 import asyncio
 import time
-from Edoardo.Species.species import Species
+from Species.species import Species
 
 # Configuration for Stop Criteria
 MAX_GENERATIONS = 500
@@ -119,7 +119,7 @@ async def run_evolution():
     
     # 3. Evolution Loop
     while True:
-        new_gen = evolution_manager.create_new_generation()
+        new_gen = await evolution_manager.create_new_generation()
         
         # Check Stop Conditions
         # Note: We check fitness achieved in the current step

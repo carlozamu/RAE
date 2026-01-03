@@ -9,7 +9,7 @@ class Phenotype:
         self.genome = genome
         self.llm = llm_client
 
-    def run(self, problem: str) -> Dict[str, Any]:
+    async def run(self, problem: str) -> Dict[str, Any]:
         # 1. Get Plan
         # execution_order is [(NodeObject, [Parent_IDs]), ...]
         execution_order = self.genome.get_execution_order() 
@@ -42,7 +42,7 @@ class Phenotype:
             # B. Execute (Transient)
             trait = Trait(node, self.llm)
             # Fix: renamed 'time' to 'duration' to avoid shadowing module
-            in_t, out_t, duration, answer = trait.execute(full_context)
+            in_t, out_t, duration, answer = await trait.execute(full_context)
             
             # C. Store Result
             trait_answers[node.id] = answer
@@ -69,7 +69,5 @@ class Phenotype:
     def deep_copy(self):
         return Phenotype(
             genome=self.genome.copy(),
-            llm_client=self.llm,
-            fitness_evaluator=self.fitness_evaluator,
-            problems_pool=None  # This is a copy of the original, so we don't need to pass the problems pool
+            llm_client=self.llm
         )

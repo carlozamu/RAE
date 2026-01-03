@@ -25,7 +25,7 @@ class Species:
     def __init__(self, initial_members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None, max_hof_size: int = 10):
         self.id = Species.species_id_counter
         Species.species_id_counter += 1
-        self.generations = []
+        self.generations: List[List[Dict[str, Union[Phenotype, float]]]] = []
         self.generation_offset = generation # It's the index of the first global generation at which this species appears
         self.selection_strategy = selection_strategy
         self.max_hof_size = max_hof_size
@@ -41,7 +41,7 @@ class Species:
         Maintains unique individuals based on genome signature.
         """
         # Collect all members from history
-        all_members = []
+        all_members: List[Dict[str, Any]] = []
         for gen_members in self.generations:
             all_members.extend(gen_members)
             
@@ -76,7 +76,7 @@ class Species:
         """
         genome = individual['member'].genome
         # Signature based on nodes and connections to identify topological duplicates
-        nodes_sig = ",".join(sorted(genome.nodes.keys()))
+        nodes_sig = ",".join(sorted(str(k) for k in genome.nodes.keys()))
         conns_sig = ",".join(sorted([f"{c.in_node}->{c.out_node}" for c in genome.connections.values() if c.enabled]))
         
         raw_sig = f"N:[{nodes_sig}]|C:[{conns_sig}]"
@@ -129,16 +129,51 @@ class Species:
         return int(adjusted_count)
     
     def _compute_average_weight_difference(self, ind1: AgentGenome, ind2: AgentGenome) -> float:
-        node_list = list(ind1.nodes.keys()) + list(ind2.nodes.keys())
-        node_list = list(set(node_list))
-        common_nodes = 0
-        total_diff = 0.0
-        for node_innovation_number in node_list:
-            if node_innovation_number in ind1.nodes and node_innovation_number in ind2.nodes:
-                common_nodes += 1
-                total_diff += np.sum((np.array(ind1.nodes[node_innovation_number].embedding) - 
-                       np.array(ind2.nodes[node_innovation_number].embedding))**2)
-        return total_diff / common_nodes if common_nodes > 0 else 0.0
+        """
+        Calculates the average semantic distance (Cosine Distance) between matching nodes.
+        Used for the 'Weight Difference' component of the NEAT compatibility formula.
+        """
+        # 1. Efficiently find common nodes (Intersection)
+        # Set operations are O(min(len(s1), len(s2))) vs O(N) loop
+        common_ids = set(ind1.nodes.keys()) & set(ind2.nodes.keys())
+        
+        if not common_ids:
+            return 0.0
+
+        total_distance = 0.0
+        valid_comparisons = 0
+        
+        for node_id in common_ids:
+            # Retrieve embeddings (which are list[float] from your LLM class)
+            emb1 = ind1.nodes[node_id].embedding
+            emb2 = ind2.nodes[node_id].embedding
+            
+            # Safety check: skip if embedding is missing/empty (e.g., failed generation)
+            if not emb1 or not emb2:
+                continue
+
+            # 2. Convert to Numpy
+            # Note: Ideally, convert this once inside PromptNode upon creation.
+            v1 = np.array(emb1)
+            v2 = np.array(emb2)
+
+            # 3. Compute Cosine Distance (1 - Cosine Similarity)
+            # Formula: 1 - (A . B) / (||A|| * ||B||)
+            # This returns 0.0 for identical meaning, and up to 2.0 for opposite meaning.
+            norm1 = np.linalg.norm(v1)
+            norm2 = np.linalg.norm(v2)
+            
+            if norm1 == 0 or norm2 == 0:
+                dist = 1.0 # Maximum penalty if a vector is null/zero
+            else:
+                # Clamp similarity to [-1, 1] to avoid floating point rounding errors causing NaNs
+                similarity = np.dot(v1, v2) / (norm1 * norm2)
+                dist = 1.0 - max(-1.0, min(1.0, similarity))
+            
+            total_distance += dist
+            valid_comparisons += 1
+
+        return total_distance / valid_comparisons if valid_comparisons > 0 else 0.0
 
 
     def belongs_to_species(self, candidate: Phenotype, generation: Optional[int]) -> bool:
@@ -208,11 +243,11 @@ class Species:
         candidate_genes = list(ind2.nodes.keys())
         member_newest_node_gene = max(member_genes, default=0)
         candidate_newest_node_gene = max(candidate_genes, default=0)
-        min_newest_gene = str(min(member_newest_node_gene, candidate_newest_node_gene))
+        min_newest_gene = min(int(member_newest_node_gene), int(candidate_newest_node_gene))
         excess_genes = 0
         total_genes = sorted(set(member_genes + candidate_genes))
         for gene in total_genes:
-            if gene > min_newest_gene:
+            if int(gene) > min_newest_gene:
                 if not (gene in member_genes and gene in candidate_genes):
                     excess_genes += 1
         return excess_genes

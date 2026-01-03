@@ -61,6 +61,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         }
     }
 
+    @staticmethod
     def get_dynamic_config(generation: int, parent_node_count: int) -> dict:
         """
         Calculates the mutation probabilities for a specific parent at a specific generation.

@@ -15,12 +15,12 @@ class Fitness:
         )
     
     from Phenotype.phenotype import Phenotype
-    def evaluate(self, individual: Phenotype, problem: dict) -> float:
+    async def evaluate(self, individual: Phenotype, problem: dict) -> float:
         """
         Evaluate a single individual on a single problem.
         """        
         try:
-            outputs = individual.run(initial_input=problem['question'])
+            outputs = await individual.run(problem=problem['question'])
             generated_ans = outputs['answer']
         except Exception as e:
             print(f"Error executing phenotype: {e}")

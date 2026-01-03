@@ -10,14 +10,14 @@ class Trait:
         self.node = node
         self.llm = llm_client
 
-    def execute(self, context: str) -> tuple[int, int, float, str]:
+    async def execute(self, context: str) -> tuple[int, int, float, str]:
         """
         Executes and returns (in_tokens, out_tokens, duration, answer).
         """
         prompt = f"""{context}\nInstruction: {self.node.instruction}\n"""
         
         start_t = time.time()
-        answer = self.llm.generate_text(user_prompt=prompt, primer="Answer: ")
+        answer = await self.llm.generate_text(user_prompt=prompt, primer="Answer: ")
         duration = time.time() - start_t
         
         in_tokens = len(prompt) // 4
