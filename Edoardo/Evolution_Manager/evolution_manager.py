@@ -1,4 +1,6 @@
+from tqdm.notebook import tqdm
 from Crossover.crossover import Crossover
+from Utils.utilities import md_logger
 from Utils.LLM import LLM
 from Genome.agent_genome import AgentGenome
 from Mutations.mutator import Mutator
@@ -11,7 +13,6 @@ from typing import Dict, List, Optional, Any, Tuple
 import asyncio
 import random
 import hashlib
-
 
 class EvolutionManager:
     def __init__(self, 
@@ -219,6 +220,7 @@ class EvolutionManager:
         # 4. Process Each Species
         # ---------------------------------------------------------
         active_species_count = 0
+        pbar = tqdm(total=50, desc=f"Gen {self.current_generation_index+1} Breeding", unit="child")
         for species in self.species:
             # Skip species that died out previously
             if species.last_generation_index() != self.current_generation_index:
@@ -235,11 +237,13 @@ class EvolutionManager:
             print(f"\n   🦕 Processing Species {species.id} (Target: {new_species_target_count})...")
             active_species_count += 1
 
+            pbar.set_description(f"Breeding Species {species.id}")
+
             # A. Create Offspring
             # ---------------------------------------
             # We usually generate exactly the target count, or slightly more if we want selection pressure
             print(f"      Creating {new_species_target_count} offspring...")
-            offsprings = await self.create_offsprings(species, new_species_target_count, problem_pool=problem_pool)
+            offsprings = await self.create_offsprings(species, new_species_target_count, problem_pool=problem_pool, pbar=pbar)
             
             if not offsprings:
                 print(f"      ⚠️ Warning: No offspring produced for species {species.id}. Skipping.")
@@ -284,6 +288,8 @@ class EvolutionManager:
             # F. Add to Next Generation Storage
             # ---------------------------------------
             species.add_members(selected_individuals, generation=self.current_generation_index + 1)
+
+        pbar.close()
 
         # 5. Finalize Generation
         # ---------------------------------------------------------
@@ -342,7 +348,7 @@ class EvolutionManager:
 
 
 
-    async def create_offsprings(self, species, num_offsprings: int, problem_pool:List[Dict[str, str]]):
+    async def create_offsprings(self, species, num_offsprings: int, problem_pool:List[Dict[str, str]], pbar: tqdm=None)-> List[Phenotype]:
         """
         Creates num_offsprings offspring from a given species.
         """
@@ -388,6 +394,8 @@ class EvolutionManager:
                     # child creates a new species
                     healthy_child = True
                     self.species.append(Species([child_phenotype], generation=next_generation, max_hof_size=self.per_species_hof_size))
+            if pbar:
+                pbar.update(1)
         return offsprings
 
     def select_parents(self, species: Species, num_parents: int) -> List:
