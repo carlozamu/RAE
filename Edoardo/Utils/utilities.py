@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
-from typing import Tuple, List
+from typing import Tuple
 from Phenotype.phenotype import Phenotype
 
 def plot_complexity_vs_fitness(generation_data: list[Tuple[int, Phenotype]], generation_idx: int, species_colors_registry: dict[str, str], output_dir="plots") -> str:
@@ -100,3 +100,40 @@ def plot_complexity_vs_fitness(generation_data: list[Tuple[int, Phenotype]], gen
     plt.close()
     
     return filename
+
+import json
+from datetime import datetime
+
+def log_generation_to_json(new_gen: list[Tuple[int, Phenotype]], generation_idx: int, filename="evolution_history.jsonl"):
+    """
+    Serializes the generation data and appends it as a single JSON line to a file.
+    """
+    # 1. Prepare the structured data
+    log_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "generation": generation_idx,
+        "population_size": len(new_gen),
+        "members": []
+    }
+
+    for species_id, phenotype in new_gen:
+        # Extract only the data we need to save space and ensure serializability
+        member_data = {
+            "species_id": species_id,
+            "genome_id": phenotype.genome.id,
+            "fitness": float(phenotype.genome.fitness),
+            "nodes_count": len(phenotype.genome.nodes),
+            "connections_count": len(phenotype.genome.connections),
+            # Optional: Log the full connection structure if needed
+            # "connections": {str(k): {"weight": v.weight, "enabled": v.enabled} 
+            #                 for k, v in phenotype.genome.connections.items()}
+        }
+        log_entry["members"].append(member_data)
+
+    # 2. Append to file (Creates if doesn't exist)
+    # Mode 'a' is append, which is very fast and safe
+    try:
+        with open(filename, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry) + "\n")
+    except Exception as e:
+        print(f"❌ Failed to log JSON: {e}")

@@ -24,7 +24,7 @@ from Fitness.fitness import Fitness
 from Mutations.mutator import Mutator
 from Data.cluttr import CLUTTRManager
 from Data.cot import CoTManager
-from Utils.utilities import _get_next_innovation_number, plot_complexity_vs_fitness
+from Utils.utilities import _get_next_innovation_number, log_generation_to_json, plot_complexity_vs_fitness
 from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
 from ERA.init_pop import initialize_population
@@ -121,9 +121,10 @@ async def run_evolution():
         # This returns the NEW population list (Species list or individual list depending on your manager return)
         new_gen = await evolution_manager.create_new_generation()
 
-        current_gen_idx = evolution_manager.current_generation_index
-        plot_path = plot_complexity_vs_fitness(generation_data=new_gen, generation_idx=current_gen_idx, species_colors_registry=encountered_species)
-        subprocess.Popen(['xdg-open', plot_path])
+        current_gen_idx = evolution_manager.current_generation_index  # Since index was incremented post-creation
+        log_generation_to_json(new_gen, current_gen_idx) # Log generation data to JSONL file
+        plot_path = plot_complexity_vs_fitness(generation_data=new_gen, generation_idx=current_gen_idx, species_colors_registry=encountered_species) # Generate and save plot
+        subprocess.Popen(['xdg-open', plot_path]) # Open the plot image using default viewer
         
         # B. Statistics Calculation
         current_gen = evolution_manager.current_generation_index
