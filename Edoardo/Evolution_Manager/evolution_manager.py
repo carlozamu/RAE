@@ -34,7 +34,7 @@ class EvolutionManager:
                  c4 = 0.5,  # Coefficient for average node differences in species compatibility
                  protection_base = 3,  # Base number of generations for protection of species
                  adjust_rate_protected_species = 1.5,  # Adjustment rate for protected species
-                 compatibility_threshold = 2.51  # Threshold for species compatibility
+                 compatibility_threshold = 0.51  # Threshold for species compatibility
     ):
         """Manages the evolution process across generations and species.
         :param selection_strategy: Strategy to select parents.
@@ -130,8 +130,8 @@ class EvolutionManager:
         """
         species_counts = {}
         for species in self.species:
-            species_counts[species] = 0
-            if species.last_generation_index() == self.current_generation_index:
+            species_counts[species] = 0.0
+            if species.last_generation_index() >= self.current_generation_index:
                 # Calculate number of offspring to create
                 new_species_count = species.adjusted_offspring_count(average_fitness, self.current_generation_index)
                 species_counts[species] = new_species_count
@@ -139,9 +139,13 @@ class EvolutionManager:
         total_counts = sum(species_counts.values())
         for species, count in species_counts.items():
             if total_counts > 0:
-                normalized_species_counts[species] = int((count / total_counts) * total_individuals)
+                normalized_species_counts[species] = round((count / total_counts) * total_individuals)
             else:
                 normalized_species_counts[species] = 0
+        md_logger.log_header(f"Species Offspring Allocation for Generation {self.current_generation_index + 1}")
+        for species, count in normalized_species_counts.items():
+            md_logger.log_event(f"Species {species.id}: Allocated Offspring = {count} with nonormalized count {species_counts[species]:.4f}")
+    
         return normalized_species_counts
         
     async def create_new_generation(self) -> list[Tuple[int, Phenotype]]:
@@ -182,20 +186,22 @@ class EvolutionManager:
         average_fitness = (total_fitness / total_individuals) if total_individuals > 0 else 0
         print(f"      -> Global Avg Fitness: {average_fitness:.4f}| Total Fitness: {total_fitness} | Total Pop: {total_individuals}")
 
-        # This determines how many babies each species is allowed to have
+        # This determines how many offsprings each species is allowed to have
         species_counts = self._compute_normalized_species_counts(average_fitness, total_individuals)
+
 
         # 4. Process Each Species
         # ---------------------------------------------------------
         active_species_count = 0
         pbar = tqdm(total=30, desc=f"Gen {self.current_generation_index+1} - Starting Offsprings Creation", unit="child")
-        for species in self.species:
+        species_tuple = tuple(self.species)  # To avoid modification during iteration
+        for species in species_tuple:
             # Skip species that died out previously
             if species.last_generation_index() != self.current_generation_index:
                 continue
             
             # Retrieve allocated slot count
-            new_species_target_count = species_counts.get(species, 0)
+            new_species_target_count = species_counts.get(species, 1)
             
             # If the species is extinct due to poor performance
             if new_species_target_count <= 0:
@@ -340,26 +346,27 @@ class EvolutionManager:
                 child_phenotype = Phenotype(genome=mutated_child, llm_client=self.llm_client)
                 new_species = True
                 next_generation = self.current_generation_index + 1
-                for s in self.species:
+                current_species = tuple(self.species)
+                for s in current_species:
                     # only work with active species
                     if s.last_generation_index() >= self.current_generation_index:
-                        if s.belongs_to_species(child_phenotype, self.current_generation_index) and s != species and s.generation_offset == next_generation:
-                            # child belongs to newly created species along another individual
-                            healthy_child = True
-                            new_species = False
-                            s.add_members([child_phenotype], generation=next_generation)
-                            break
-                        if s.belongs_to_species(child_phenotype, self.current_generation_index) and s != species:
-                            # child belongs to another existing species. Abort and retry
-                            healthy_child = False
-                            new_species = False
-                            break
-                        elif s.belongs_to_species(child_phenotype, self.current_generation_index) and s == species:
+                        if s.belongs_to_species(child_phenotype, self.current_generation_index) and s == species:
                             # child belongs to the same species as parents
                             healthy_child = True
                             new_species = False
                             offsprings.append(child_phenotype)
                             break
+                        elif s.belongs_to_species(child_phenotype, self.current_generation_index) and s != species and s.generation_offset == next_generation:
+                            # child belongs to newly created species along another individual
+                            healthy_child = True
+                            new_species = False
+                            s.add_members([child_phenotype], generation=next_generation)
+                            break
+                        elif s.belongs_to_species(child_phenotype, self.current_generation_index) and s != species:
+                            # child belongs to another existing species. Abort and retry
+                            healthy_child = False
+                            new_species = False
+                            #break
                 if new_species:
                     # child creates a new species
                     healthy_child = True

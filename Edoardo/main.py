@@ -169,8 +169,6 @@ async def run_evolution():
 if __name__ == "__main__":
     try:
         asyncio.run(run_evolution())
-    except KeyboardInterrupt:
-        print("\n\n👋 Manual Interruption Detected (CTRL+C).")
     finally:
         # This ALWAYS runs, ensuring VRAM is freed
         force_cleanup()

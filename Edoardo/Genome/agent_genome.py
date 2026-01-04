@@ -78,8 +78,6 @@ class AgentGenome:
                 if in_degree[neighbor] == 0:
                     queue.append(neighbor)
 
-        # 4. Validation (BUG FIXED HERE)
-        # We compare .innovation_number, NOT .id
         has_end = any(item[0].innovation_number == self.end_node_innovation_number for item in execution_plan)
         
         if not has_end and self.end_node_innovation_number in self.nodes:

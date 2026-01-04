@@ -81,7 +81,7 @@ class Species:
         raw_sig = f"N:[{nodes_sig}]|C:[{conns_sig}]"
         return hashlib.md5(raw_sig.encode()).hexdigest()
     
-    def adjusted_offspring_count(self, average_fitness: float, generation: int) -> int:
+    def adjusted_offspring_count(self, average_fitness: float, generation: int) -> float:
         """
         Calculate adjusted offspring count for the species based on average fitness.
         
@@ -126,8 +126,8 @@ class Species:
             if adjusted_count < 1.0:
                 adjusted_count = 1.0
         
-        return int(adjusted_count)
-    
+        return adjusted_count
+        
     def _compute_average_weight_difference(self, ind1: AgentGenome, ind2: AgentGenome) -> float:
         """
         Calculates the average semantic distance (Cosine Distance) between matching nodes.
