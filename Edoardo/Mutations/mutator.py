@@ -64,37 +64,72 @@ mutator = Mutator(breeder_llm, config=tuning_config)
     @staticmethod
     def get_dynamic_config(generation: int, parent_node_count: int) -> dict:
         """
-        Calculates the mutation probabilities for a specific parent at a specific generation.
+        Calculates mutation probabilities using a 'Phase Shift' strategy.
+        Early phase: Aggressive growth (Add Nodes/Split).
+        Late phase: Refinement (Connections, Removal, Simplification).
         """
-        # 1. Architectural Decay: 0.9^(gen+1), clamped at 10%
-        # This cools down the topology changes over time.
-        p_arch = max(0.1, 0.9 ** (generation + 1))
         
-        # 2. Gene Mutation: 1/N rule
-        # Ensures we mutate roughly 1 node per child, regardless of size.
-        # We use 'parent_node_count' because the child size is unknown yet.
+        # --- 1. Global Rate Calculations (Existing Logic) ---
+        # Architectural Decay: Cools down topology changes over generations
+        p_arch = max(0.1, 0.9 ** generation)
+        
+        # Gene Mutation: 1/N rule (approx 1 mutation per child)
         p_gene = 1.0 / max(1, parent_node_count)
+
+
+        # --- 2. Dynamic Probability Scaling ---
+        
+        # Define "Maturity": At what size is the graph considered "expanded"?
+        # CHANGED: Lowered to 7. Agents will switch to optimization mode much faster.
+        MATURITY_THRESHOLD = 7
+        
+        # Calculate 'alpha' (0.0 = Start/Small, 1.0 = Mature/Large)
+        # We subtract 1 because the minimum node count is 1.
+        if parent_node_count <= 1:
+            alpha = 0.0
+        elif parent_node_count >= MATURITY_THRESHOLD:
+            alpha = 1.0
+        else:
+            alpha = (parent_node_count - 1) / (MATURITY_THRESHOLD - 1)
+
+        # Helper for Linear Interpolation
+        def lerp(start, end, t):
+            return start + (end - start) * t
 
         return {
             "p_architectural_event": p_arch,
             "p_mutate_node": p_gene,
             
-            # Keep relative weights constant (or dynamic if you prefer)
+            # Interpolate Architectural Probabilities
             "arch_probs": {
-                MutType.ARCH_ADD_NODE: 0.3,
-                MutType.ARCH_ADD_CONN: 0.3,
-                MutType.ARCH_REMOVE_NODE: 0.2,
-                MutType.ARCH_REMOVE_CONN: 0.2,
+                # Growth: Starts at 100%, drops to 35%
+                MutType.ARCH_ADD_NODE:    lerp(1.0, 0.35, alpha),
+                
+                # Complexity: Starts at 0%, rises to 30%
+                MutType.ARCH_ADD_CONN:    lerp(0.0, 0.30, alpha),
+                
+                # Pruning: Starts at 0%, rises to 15%
+                MutType.ARCH_REMOVE_NODE: lerp(0.0, 0.15, alpha),
+                
+                # Cleanup: Starts at 0%, rises to 20%
+                MutType.ARCH_REMOVE_CONN: lerp(0.0, 0.20, alpha),
             },
+            
+            # Interpolate Gene Probabilities
             "gene_probs": {
-                # Content changes are more common than heavy splits
-                MutType.GENE_EXPAND: 0.3,
-                MutType.GENE_REFORMULATE: 0.3,
-                MutType.GENE_SIMPLIFY: 0.2,
-                MutType.GENE_SPLIT: 0.2 
+                # Expansion: 0.2 -> 0.3 (Slight increase to refine details)
+                MutType.GENE_EXPAND:      lerp(0.2, 0.3, alpha),
+                
+                # Exploration: 0.4 -> 0.3 (High initial exploration, then stabilize)
+                MutType.GENE_REFORMULATE: lerp(0.4, 0.3, alpha),
+                
+                # Optimization: 0.0 -> 0.2 (Only simplify once graph is complex)
+                MutType.GENE_SIMPLIFY:    lerp(0.0, 0.2, alpha),
+                
+                # Major Structural Change: 0.4 -> 0.2 (Split less often as we mature)
+                MutType.GENE_SPLIT:       lerp(0.4, 0.2, alpha)
             }
         }
-
 
     def __init__(self, breeder_llm_client: LLM, default_config=None):
         """
