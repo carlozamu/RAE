@@ -1,6 +1,6 @@
 from tqdm.notebook import tqdm
 from Crossover.crossover import Crossover
-from Utils.utilities import md_logger
+from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
 from Genome.agent_genome import AgentGenome
 from Mutations.mutator import Mutator

@@ -17,13 +17,15 @@ import gc
 import torch
 import traceback
 from math import inf
+import subprocess # Needed to spawn the image viewer process
 
 # --- Internal Modules ---
 from Fitness.fitness import Fitness
 from Mutations.mutator import Mutator
 from Data.cluttr import CLUTTRManager
 from Data.cot import CoTManager
-from Utils.utilities import _get_next_innovation_number
+from Utils.utilities import _get_next_innovation_number, plot_complexity_vs_fitness
+from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
 from ERA.init_pop import initialize_population
 from Evolution_Manager.evolution_manager import EvolutionManager
@@ -113,10 +115,15 @@ async def run_evolution():
     print("\n🚀 Starting Evolution Loop...")
     start_time = time.time()
     x=True
+    encountered_species: dict[(int, str)] = {}  # Dictionary of (species_id, hex color)
     while x==True:
         # A. Create Next Generation (Includes Selection, Mutation, Evaluation)
         # This returns the NEW population list (Species list or individual list depending on your manager return)
         new_gen = await evolution_manager.create_new_generation()
+
+        current_gen_idx = evolution_manager.current_generation_index
+        plot_path = plot_complexity_vs_fitness(generation_data=new_gen, generation_idx=current_gen_idx, species_colors_registry=dict(encountered_species))
+        subprocess.Popen(['xdg-open', plot_path])
         
         # B. Statistics Calculation
         current_gen = evolution_manager.current_generation_index
