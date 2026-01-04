@@ -18,7 +18,7 @@ class Species:
     c4 = 1.0  # Coefficient for average node differences
     protection_base = 3  # Base number of generations for protection
     adjust_rate_protected_species = 1.5  # Adjustment rate for protected species
-    compatibility_threshold = 3.0  # Threshold for species compatibility
+    compatibility_threshold = 2.0  # Threshold for species compatibility
     species_id_counter = 0
 
     def __init__(self, initial_members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None, max_hof_size: int = 10):
@@ -81,19 +81,23 @@ class Species:
         raw_sig = f"N:[{nodes_sig}]|C:[{conns_sig}]"
         return hashlib.md5(raw_sig.encode()).hexdigest()
     
-    def adjusted_offspring_count(self, global_average_score: float, generation: int) -> int:
+    def adjusted_offspring_count(self, average_fitness: float, generation: int) -> int:
         """
-        Calculate adjusted offspring count based on Allocation Score.
-        Formula: Count = SpeciesTotalScore / GlobalAverageScore
+        Calculate adjusted offspring count for the species based on average fitness.
+        
+        :param average_fitness: Average fitness of the entire population
+        :param generation: Current generation index
+        :return: Adjusted number of offspring for this species
         """
+        print(f"Calculating adjusted offspring for Species {self.id} at Gen {generation}, with average fitness {average_fitness:.4f}")
         species_age = generation - self.generation_offset
         
-        # Get score stats for this species
-        total_score = self.cumulative_fitness(generation)
+        # Note: cumulative_fitness and member_count expect global generation index
+        cumulative_fit = self.cumulative_fitness(generation)
         member_count = self.member_count(generation)
         
-        if global_average_score > 0:
-            adjusted_count = total_score / global_average_score
+        if average_fitness > 0:
+            adjusted_count = (1.0 / cumulative_fit) / (1.0 / average_fitness)
         else:
             adjusted_count = float(member_count)
             
@@ -105,7 +109,7 @@ class Species:
                     len(m["member"].genome.nodes) + len(m["member"].genome.connections)
                     for m in current_members
                 )
-                avg_complexity = total_complexity / len(current_members)
+                avg_complexity = total_complexity / max(1, len(current_members))
             else:
                 avg_complexity = 0.0
         else:
@@ -191,6 +195,7 @@ class Species:
                                   Species.c2 * (disjoint_genes/max_number_of_genes) +
                                   Species.c3 * (different_edges/max_number_of_edges) +
                                   Species.c4 * (average_weight_diff))
+        #print(f"Compatibility distance: {compatibility_distance:.4f}")
         return compatibility_distance < self.compatibility_threshold
 
     def add_members(self, members: List[Phenotype], generation: Optional[int]) -> None:
@@ -284,34 +289,6 @@ class Species:
             import traceback
             traceback.print_exc()
             return 0
-
-    def get_allocation_score_stats(self, generation: int) -> tuple[float, float]:
-        """
-        Calculates total and average Allocation Score for determining offspring count.
-        Allocation Score = 1.0 / (Loss + 1e-6)
-        Since Fitness = -Loss, Score = 1.0 / (-Fitness + 1e-6)
-        """
-        internal_idx = generation - self.generation_offset
-        if not (0 <= internal_idx < len(self.generations)):
-            return 0.0, 0.0
-            
-        members = self.generations[internal_idx]
-        total_score = 0.0
-        count = 0
-        
-        for m in members:
-            # Handle both dict and object formats
-            loss = m['fitness'] if isinstance(m, dict) else m.genome.fitness
-            # Fitness is stored as positive loss now.
-            # Ensure loss is non-negative
-            loss = max(0.0, loss)
-            
-            score = 1.0 / (loss + 1e-6)
-            total_score += score
-            count += 1
-            
-        avg_score = total_score / count if count > 0 else 0.0
-        return total_score, avg_score
 
     def cumulative_fitness(self, generation: Optional[int]) -> float:
         generation = generation-self.generation_offset if generation is not None else -1

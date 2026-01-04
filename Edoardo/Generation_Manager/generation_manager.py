@@ -52,6 +52,10 @@ class CommaPlusStrategy(SurvivorSelectionStrategy):
         """
         # Combine both populations
         combined = current_population + offspring_population
+
+        # Shuffle the combined list to avoid bias in sorting
+        import random
+        random.shuffle(combined)
         
         # Sort by fitness (ascending) and select top N
         sorted_combined = sorted(combined, key=lambda x: x['fitness'], reverse=False)
