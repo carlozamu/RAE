@@ -114,11 +114,11 @@ class EvolutionManager:
         print(f"   ✅ Initial Speciation Complete. Created {len(species_list)} distinct species.")
         return species_list
 
-    def get_problem_pool(self, size: int = 3) -> List[Dict[str, str]]:
+    def get_problem_pool(self) -> List[Dict[str, str]]:
         """
         Returns a list of problems from the dataset manager.
         """
-        return self.dataset_manager.get_batch(size=size)
+        return self.dataset_manager.get_batch()
     
     def _compute_normalized_species_counts(self, average_fitness: float, total_individuals: int) -> Dict[Species, int]:
         """
@@ -196,7 +196,7 @@ class EvolutionManager:
         print("   🧪 Generating new Problem Pool...")
         
         # We use the same pool for all species to ensure fair comparison
-        problem_pool: List[Dict[str, str]] = self.get_problem_pool(size=3)
+        problem_pool: List[Dict[str, str]] = self.get_problem_pool()
         print(f"      -> Pool size: {len(problem_pool)}")
         # 3. Calculate Fitness Stats & Allocate Slots (Speciation)
         # ---------------------------------------------------------
@@ -221,7 +221,7 @@ class EvolutionManager:
         average_fitness = total_fitness / total_individuals if total_individuals > 0 else 0
         global_average_score = total_global_score / total_individuals if total_individuals > 0 else 0
         
-        print(f"      -> Global Avg Fitness: {average_fitness:.4f} (neg loss) | Global Avg Score: {global_average_score:.4f}")
+        #print(f"      -> Global Avg Fitness: {average_fitness:.4f} (neg loss) | Global Avg Score: {global_average_score:.4f}")
 
         # This determines how many babies each species is allowed to have
         # Pass global_average_score as the 'average_fitness' argument for the allocation logic
@@ -230,7 +230,7 @@ class EvolutionManager:
         # 4. Process Each Species
         # ---------------------------------------------------------
         active_species_count = 0
-        pbar = tqdm(total=50, desc=f"Gen {self.current_generation_index+1} Breeding", unit="child")
+        pbar = tqdm(total=30, desc=f"Gen {self.current_generation_index+1} - Starting Offsprings Creation", unit="child")
         for species in self.species:
             # Skip species that died out previously
             if species.last_generation_index() != self.current_generation_index:
@@ -244,15 +244,17 @@ class EvolutionManager:
                 print(f"   💀 Species {species.id} has gone extinct (0 slots allocated).")
                 continue
 
-            print(f"\n   🦕 Processing Species {species.id} (Target: {new_species_target_count})...")
+            #print(f"\n   🦕 Processing Species {species.id} (Target: {new_species_target_count})...")
             active_species_count += 1
 
-            pbar.set_description(f"Breeding Species {species.id}")
+            
 
             # A. Create Offspring
             # ---------------------------------------
             # We usually generate exactly the target count, or slightly more if we want selection pressure
             print(f"      Creating {new_species_target_count} offspring...")
+            pbar.set_description(f"Breeding Species {species.id}")
+            
             offsprings = await self.create_offsprings(species, new_species_target_count, problem_pool=problem_pool, pbar=pbar)
             
             if not offsprings:
