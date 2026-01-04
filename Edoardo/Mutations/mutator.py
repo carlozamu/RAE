@@ -4,7 +4,7 @@ from Genome.agent_genome import AgentGenome
 from Gene.gene import PromptNode
 from Gene.connection import Connection
 from Utils.utilities import _get_next_innovation_number
-from Utils.MarkDownLogger import md_logger
+#from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
 
 class MutType:
@@ -226,7 +226,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         # add two new connections
         genome.add_connection(connection.in_node, new_node.innovation_number)
         genome.add_connection(new_node.innovation_number, connection.out_node)
-        md_logger.log_event(f"""Added new node '{new_node.name}' between '{in_node.name}' and '{out_node.name}'""")
+        #md_logger.log_event(f"""Added new node '{new_node.name}' between '{in_node.name}' and '{out_node.name}'""")
 
     def _handle_remove_node(self, genome: AgentGenome):
         # choose a random node to remove
@@ -268,7 +268,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
 
         # 5. Delete the Node
         genome.nodes.pop(node_innovation_number, None)
-        md_logger.log_event(f"Removed node '{node_innovation_number}' and reconnected its neighbors.")
+        #md_logger.log_event(f"Removed node '{node_innovation_number}' and reconnected its neighbors.")
 
     def _handle_add_connection(self, genome: AgentGenome):
         """
@@ -327,7 +327,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             target_innovation_number = random.choice(valid_targets)
             #print(f"Global: Adding connection {genome.nodes[source_node].name} -> {genome.nodes[target_innovation_number].name}")
             genome.add_connection(source_node, target_innovation_number)
-            md_logger.log_event(f"""Added new connection from '{genome.nodes[source_node].name}' to '{genome.nodes[target_innovation_number].name}'""")
+            #md_logger.log_event(f"""Added new connection from '{genome.nodes[source_node].name}' to '{genome.nodes[target_innovation_number].name}'""")
         else:
             print("Global: Graph is fully saturated. No new connections possible.")
             
@@ -372,7 +372,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             target_conn = random.choice(candidates)
             #print(f"Global: Removing connection {target_conn.in_node}... -> {target_conn.out_node}...")
             target_conn.enabled = False
-            md_logger.log_event(f"""Removed connection from '{genome.nodes[target_conn.in_node].name}' to '{genome.nodes[target_conn.out_node].name}'""")
+            #md_logger.log_event(f"""Removed connection from '{genome.nodes[target_conn.in_node].name}' to '{genome.nodes[target_conn.out_node].name}'""")
         else:
             print("Global: No removable connections found (all are critical bridges).")
 
@@ -407,11 +407,11 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             mutation_type = self._pick_from_cdf(arch_cdf)
             if mutation_type:
                 await self._apply_global_mutation(mutated_genome, mutation_type)
-                md_logger.log_event(f"Applied mutation {mutation_type}")
+                #md_logger.log_event(f"Applied mutation {mutation_type}")
 
         # 5. Gene Level Mutations (Per Node Check)
         await self._apply_gene_mutations(mutated_genome, p_mutate_node, gene_cdf)
-        md_logger.log_event(f"Applied mutations to {len(mutated_genome.nodes)} nodes")
+        #md_logger.log_event(f"Applied mutations to {len(mutated_genome.nodes)} nodes")
 
         return mutated_genome
 

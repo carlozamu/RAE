@@ -7,17 +7,18 @@ def _get_next_innovation_number() -> int:
     NEXT_INNOVATION_NUMBER += 1
     return NEXT_INNOVATION_NUMBER
 
-from typing import Tuple
-from Phenotype.phenotype import Phenotype
 import matplotlib.pyplot as plt
-import numpy as np # Needed for the interval calculations
+import numpy as np
 import os
 import random
 from typing import Tuple, List
+from Phenotype.phenotype import Phenotype  # Ensure this import matches your project structure
 
 def plot_complexity_vs_fitness(generation_data: list[Tuple[int, Phenotype]], generation_idx: int, species_colors_registry: dict[int, str], output_dir="plots") -> str:
     """
-    Plots Complexity vs Fitness with a FIXED FRAME (0-3.5 Loss, 0-100 Complexity).
+    Plots Complexity vs Fitness with LOGARITHMIC SCALES.
+    X-Axis: Loss (SymLog to handle 0). Ticks: [0, 0.3, 0.6, 1, 1.5, 2, 3]
+    Y-Axis: Complexity (Log). Ticks: [1, 2, 5, 10, 20, 50, 100]
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -35,7 +36,8 @@ def plot_complexity_vs_fitness(generation_data: list[Tuple[int, Phenotype]], gen
         # Y-Axis: Complexity
         num_nodes = len(phenotype.genome.nodes)
         num_conns = len([c for c in phenotype.genome.connections.values() if c.enabled])
-        ys.append(num_nodes + num_conns)
+        # Ensure Y is at least 1 to avoid log(0) errors if an agent is somehow empty
+        ys.append(max(1, num_nodes + num_conns))
         
         # Color Management
         if species_id not in species_colors_registry:
@@ -53,24 +55,36 @@ def plot_complexity_vs_fitness(generation_data: list[Tuple[int, Phenotype]], gen
     # Scatter plot
     plt.scatter(xs, ys, c=colors, alpha=0.7, edgecolors='black', linewidth=0.5, s=60)
     
-    # 4. FIXED AXIS STYLING
+    # 4. LOGARITHMIC AXIS CONFIGURATION
     # ---------------------------------------------------------
-    # Set the fixed boundaries
-    plt.xlim(0, 3.5)
-    plt.ylim(0, 100)
+    
+    # --- Y-Axis: Standard Log Scale ---
+    plt.yscale('log')
+    plt.ylim(0.9, 110) # Set limits slightly wider than [1, 100] so dots aren't cut off
+    
+    # Custom Ticks for Y
+    y_ticks = [1, 2, 5, 10, 20, 50, 100]
+    plt.yticks(y_ticks, [str(y) for y in y_ticks])
 
-    # Set the fixed intervals (ticks)
-    # np.arange(start, stop, step) - stop is exclusive, so we go slightly higher
-    plt.xticks(np.arange(0, 3.51, 0.2)) 
-    plt.yticks(np.arange(0, 101, 10))
+    # --- X-Axis: Symmetrical Log Scale (SymLog) ---
+    # SymLog behaves like log, but is linear around zero (linthresh determines the linear range)
+    # This allows us to plot 0 without error.
+    plt.xscale('symlog', linthresh=0.1) 
+    plt.xlim(-0.05, 3.5) # Start slightly below 0 to visualize the 0 line clearly
+    
+    # Custom Ticks for X as requested
+    x_ticks = [0, 0.3, 0.6, 1, 1.5, 2, 3]
+    plt.xticks(x_ticks, [str(x) for x in x_ticks])
+    
+    # ---------------------------------------------------------
 
-    plt.title(f"Generation {generation_idx}: Complexity vs. Loss")
+    plt.title(f"Generation {generation_idx}: Complexity vs. Loss (Log Scales)")
     plt.xlabel("Loss (Fitness) -> Lower is Better")
     plt.ylabel("Complexity (Nodes + Enabled Edges)")
     
-    # Add grid that aligns with our new ticks
-    plt.grid(True, linestyle='--', alpha=0.5, which='both')
-    # ---------------------------------------------------------
+    # Add grid (using 'both' ensures minor log grid lines appear too)
+    plt.grid(True, which="major", linestyle='-', alpha=0.6)
+    plt.grid(True, which="minor", linestyle=':', alpha=0.3)
     
     # Legend Logic
     active_species_ids = set(item[0] for item in generation_data)

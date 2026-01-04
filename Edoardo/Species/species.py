@@ -82,23 +82,20 @@ class Species:
         raw_sig = f"N:[{nodes_sig}]|C:[{conns_sig}]"
         return hashlib.md5(raw_sig.encode()).hexdigest()
     
-    def adjusted_offspring_count(self, average_fitness: float, generation: int) -> int:
+    def adjusted_offspring_count(self, global_average_score: float, generation: int) -> int:
         """
-        Calculate adjusted offspring count for the species based on average fitness.
-        
-        :param average_fitness: Average fitness of the entire population
-        :param generation: Current generation index
-        :return: Adjusted number of offspring for this species
+        Calculate adjusted offspring count based on Allocation Score.
+        Formula: Count = SpeciesTotalScore / GlobalAverageScore
         """
-        print(f"Calculating adjusted offspring for Species {self.id} at Gen {generation}, with average fitness {average_fitness:.4f}")
+        print(f"Calculating adjusted offspring for Species {self.id} at Gen {generation}, with global avg score {global_average_score:.4f}")
         species_age = generation - self.generation_offset
         
-        # Note: cumulative_fitness and member_count expect global generation index
-        cumulative_fit = self.cumulative_fitness(generation)
+        # Get score stats for this species
+        total_score, _ = self.get_allocation_score_stats(generation)
         member_count = self.member_count(generation)
         
-        if average_fitness > 0:
-            adjusted_count = cumulative_fit / average_fitness
+        if global_average_score > 0:
+            adjusted_count = total_score / global_average_score
         else:
             adjusted_count = float(member_count)
             
@@ -295,13 +292,41 @@ class Species:
             traceback.print_exc()
             return 0
 
+    def get_allocation_score_stats(self, generation: int) -> tuple[float, float]:
+        """
+        Calculates total and average Allocation Score for determining offspring count.
+        Allocation Score = 1.0 / (Loss + 1e-6)
+        Since Fitness = -Loss, Score = 1.0 / (-Fitness + 1e-6)
+        """
+        internal_idx = generation - self.generation_offset
+        if not (0 <= internal_idx < len(self.generations)):
+            return 0.0, 0.0
+            
+        members = self.generations[internal_idx]
+        total_score = 0.0
+        count = 0
+        
+        for m in members:
+            # Handle both dict and object formats
+            loss = m['fitness'] if isinstance(m, dict) else m.genome.fitness
+            # Fitness is stored as positive loss now.
+            # Ensure loss is non-negative
+            loss = max(0.0, loss)
+            
+            score = 1.0 / (loss + 1e-6)
+            total_score += score
+            count += 1
+            
+        avg_score = total_score / count if count > 0 else 0.0
+        return total_score, avg_score
+
     def cumulative_fitness(self, generation: Optional[int]) -> float:
         try:
             # Calculate internal index
             internal_idx = generation - self.generation_offset if generation is not None else -1
 
             members = self.generations[internal_idx]
-            print(f"Calculating cumulative fitness for Species {self.id} at Gen {generation} with {len(members)} members.")
+            #print(f"Calculating cumulative fitness for Species {self.id} at Gen {generation} with {len(members)} members.")
             total_fitness = 0.0
             valid_members = 0
 
@@ -324,7 +349,7 @@ class Species:
                 else:
                     print(f"   ⚠️ Unknown member format in Species {self.id}: {type(member)}")
 
-            print(f"   [CumulativeFit] Species {self.id} Gen {generation}: {total_fitness:.2f} (from {valid_members} valid members)")
+            #print(f"   [CumulativeFit] Species {self.id} Gen {generation}: {total_fitness:.2f} (from {valid_members} valid members)")
             return total_fitness
 
         except Exception as e:
