@@ -108,7 +108,7 @@ import json
 import os
 from datetime import datetime
 
-def log_generation_to_json(new_gen: list, generation_idx: int, filename="evolution_history.jsonl"):
+def log_generation_to_json(new_gen: list[Tuple[int, Phenotype]], generation_idx: int, filename="evolution_history.jsonl"):
     """
     Serializes generation metadata and performs a deep dive log of the 
     best individual (lowest loss) in the population.
@@ -135,16 +135,14 @@ def log_generation_to_json(new_gen: list, generation_idx: int, filename="evoluti
             "genome_id": best_phenotype.genome.id,
             "nodes": [
                 {
-                    "id": n.id, 
-                    "type": str(n.type), 
-                    "content": n.content  # The actual prompt/instructions in the node
+                    "id": n.id,
+                    "content": n.instruction  # The actual prompt/instructions in the node
                 } for n in best_phenotype.genome.nodes.values()
             ],
             "connections": [
                 {
                     "in": c.in_node, 
                     "out": c.out_node, 
-                    "weight": float(c.weight), 
                     "enabled": c.enabled
                 } for c in best_phenotype.genome.connections.values()
             ],
@@ -159,4 +157,3 @@ def log_generation_to_json(new_gen: list, generation_idx: int, filename="evoluti
             f.write(json.dumps(log_entry) + "\n")
     except Exception as e:
         print(f"❌ Failed to log full phenotype JSON: {e}")
-        
