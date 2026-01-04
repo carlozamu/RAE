@@ -72,17 +72,17 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         
         # --- 1. Global Rate Calculations (Existing Logic) ---
         # Architectural Decay: Cools down topology changes over generations
-        p_arch = max(0.1, 0.9 ** generation)
+        p_arch = max(0.33, 0.9 ** (generation-1))
         
         # Gene Mutation: 1/N rule (approx 1 mutation per child)
-        p_gene = 1.0 / max(1, parent_node_count)
+        p_gene = max(0.33,1.0 / max(1, parent_node_count))
 
 
         # --- 2. Dynamic Probability Scaling ---
         
         # Define "Maturity": At what size is the graph considered "expanded"?
         # CHANGED: Lowered to 7. Agents will switch to optimization mode much faster.
-        MATURITY_THRESHOLD = 7
+        MATURITY_THRESHOLD = 15
         
         # Calculate 'alpha' (0.0 = Start/Small, 1.0 = Mature/Large)
         # We subtract 1 because the minimum node count is 1.

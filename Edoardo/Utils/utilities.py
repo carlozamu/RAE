@@ -104,36 +104,59 @@ def plot_complexity_vs_fitness(generation_data: list[Tuple[int, Phenotype]], gen
 import json
 from datetime import datetime
 
-def log_generation_to_json(new_gen: list[Tuple[int, Phenotype]], generation_idx: int, filename="evolution_history.jsonl"):
+import json
+import os
+from datetime import datetime
+
+def log_generation_to_json(new_gen: list, generation_idx: int, filename="evolution_history.jsonl"):
     """
-    Serializes the generation data and appends it as a single JSON line to a file.
+    Serializes generation metadata and performs a deep dive log of the 
+    best individual (lowest loss) in the population.
     """
-    # 1. Prepare the structured data
+    if not new_gen:
+        return
+
+    # 1. Find the best individual (first one with the minimum fitness/loss)
+    best_entry = min(new_gen, key=lambda x: x[1].genome.fitness)
+    best_species_id, best_phenotype = best_entry
+
+    # 2. Prepare the high-level log entry
     log_entry = {
         "timestamp": datetime.now().isoformat(),
         "generation": generation_idx,
         "population_size": len(new_gen),
-        "members": []
+        "best_individual_stats": {
+            "species_id": best_species_id,
+            "loss": float(best_phenotype.genome.fitness),
+            "complexity": len(best_phenotype.genome.nodes) + len(best_phenotype.genome.connections)
+        },
+        # --- THE FULL PHENOTYPE EXPORT ---
+        "best_individual_full": {
+            "genome_id": best_phenotype.genome.id,
+            "nodes": [
+                {
+                    "id": n.id, 
+                    "type": str(n.type), 
+                    "content": n.content  # The actual prompt/instructions in the node
+                } for n in best_phenotype.genome.nodes.values()
+            ],
+            "connections": [
+                {
+                    "in": c.in_node, 
+                    "out": c.out_node, 
+                    "weight": float(c.weight), 
+                    "enabled": c.enabled
+                } for c in best_phenotype.genome.connections.values()
+            ],
+            # If your phenotype stores the history of LLM calls or specific prompts
+            "system_metadata": getattr(best_phenotype, 'metadata', {}) 
+        }
     }
 
-    for species_id, phenotype in new_gen:
-        # Extract only the data we need to save space and ensure serializability
-        member_data = {
-            "species_id": species_id,
-            "genome_id": phenotype.genome.id,
-            "fitness": float(phenotype.genome.fitness),
-            "nodes_count": len(phenotype.genome.nodes),
-            "connections_count": len(phenotype.genome.connections),
-            # Optional: Log the full connection structure if needed
-            # "connections": {str(k): {"weight": v.weight, "enabled": v.enabled} 
-            #                 for k, v in phenotype.genome.connections.items()}
-        }
-        log_entry["members"].append(member_data)
-
-    # 2. Append to file (Creates if doesn't exist)
-    # Mode 'a' is append, which is very fast and safe
+    # 3. Append to file
     try:
         with open(filename, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry) + "\n")
     except Exception as e:
-        print(f"❌ Failed to log JSON: {e}")
+        print(f"❌ Failed to log full phenotype JSON: {e}")
+        
