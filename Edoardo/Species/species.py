@@ -7,8 +7,7 @@ from Fitness.fitness import Fitness
 from Genome.agent_genome import AgentGenome
 from Phenotype.phenotype import Phenotype
 
-if TYPE_CHECKING:
-    from Selection.selection import SelectionStrategy
+from Selection.selection import SelectionStrategy
 
 class Species:
 
@@ -16,10 +15,10 @@ class Species:
     c1 = 1.0  # Coefficient for excess genes
     c2 = 1.0  # Coefficient for disjoint genes
     c3 = 1.0  # Coefficient for edges count difference
-    c4 = 0.5  # Coefficient for average node differences
+    c4 = 1.0  # Coefficient for average node differences
     protection_base = 3  # Base number of generations for protection
     adjust_rate_protected_species = 1.5  # Adjustment rate for protected species
-    compatibility_threshold = 1.3  # Threshold for species compatibility
+    compatibility_threshold = 3.0  # Threshold for species compatibility
     species_id_counter = 0
 
     def __init__(self, initial_members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None, max_hof_size: int = 10):
@@ -87,11 +86,10 @@ class Species:
         Calculate adjusted offspring count based on Allocation Score.
         Formula: Count = SpeciesTotalScore / GlobalAverageScore
         """
-        #print(f"Calculating adjusted offspring for Species {self.id} at Gen {generation}, with global avg score {global_average_score:.4f}")
         species_age = generation - self.generation_offset
         
         # Get score stats for this species
-        total_score, _ = self.get_allocation_score_stats(generation)
+        total_score = self.cumulative_fitness(generation)
         member_count = self.member_count(generation)
         
         if global_average_score > 0:
@@ -142,31 +140,27 @@ class Species:
         valid_comparisons = 0
         
         for node_id in common_ids:
-            # Retrieve embeddings (which are list[float] from your LLM class)
             emb1 = ind1.nodes[node_id].embedding
             emb2 = ind2.nodes[node_id].embedding
-            
-            # Safety check: skip if embedding is missing/empty (e.g., failed generation)
             if not emb1 or not emb2:
                 continue
 
             # 2. Convert to Numpy
-            # Note: Ideally, convert this once inside PromptNode upon creation.
             v1 = np.array(emb1)
             v2 = np.array(emb2)
 
-            # 3. Compute Cosine Distance (1 - Cosine Similarity)
-            # Formula: 1 - (A . B) / (||A|| * ||B||)
-            # This returns 0.0 for identical meaning, and up to 2.0 for opposite meaning.
+            # 3. Compute Cosine Distance (1 - Cosine Similarity), normalized to [0, 1]
+            # Formula: (1 - (A . B) / (||A|| * ||B||)) / 2
+            # This returns 0.0 for identical vectors, and 1.0 for opposite vectors.
             norm1 = np.linalg.norm(v1)
             norm2 = np.linalg.norm(v2)
             
             if norm1 == 0 or norm2 == 0:
-                dist = 1.0 # Maximum penalty if a vector is null/zero
+                dist = 0.5 # Neutral penalty if a vector is null/zero
             else:
                 # Clamp similarity to [-1, 1] to avoid floating point rounding errors causing NaNs
                 similarity = np.dot(v1, v2) / (norm1 * norm2)
-                dist = 1.0 - max(-1.0, min(1.0, similarity))
+                dist = (1.0 - max(-1.0, min(1.0, similarity))) / 2.0
             
             total_distance += dist
             valid_comparisons += 1
@@ -320,40 +314,8 @@ class Species:
         return total_score, avg_score
 
     def cumulative_fitness(self, generation: Optional[int]) -> float:
-        try:
-            # Calculate internal index
-            internal_idx = generation - self.generation_offset if generation is not None else -1
-
-            members = self.generations[internal_idx]
-            #print(f"Calculating cumulative fitness for Species {self.id} at Gen {generation} with {len(members)} members.")
-            total_fitness = 0.0
-            valid_members = 0
-
-            for i, member in enumerate(members):
-                # CASE A: Standard Dict format {'member': Phenotype, 'fitness': float}
-                if isinstance(member, dict) and "fitness" in member:
-                    total_fitness += member["fitness"]
-                    valid_members += 1
-                
-                # CASE B: Raw Phenotype Object (Fallback)
-                elif hasattr(member, 'genome') and hasattr(member.genome, 'fitness'):
-                    total_fitness += member.genome.fitness
-                    valid_members += 1
-                    
-                # CASE C: Data Corruption (Integer Index found)
-                elif isinstance(member, (int, float)):
-                    print(f"   🛑 CORRUPTION DETECTED in Species {self.id}, Gen {generation}: Member at index {i} is type {type(member)} (Value: {member}). Skipping.")
-                    # We skip it to prevent the crash, but this data is effectively lost/invalid
-                    
-                else:
-                    print(f"   ⚠️ Unknown member format in Species {self.id}: {type(member)}")
-
-            #print(f"   [CumulativeFit] Species {self.id} Gen {generation}: {total_fitness:.2f} (from {valid_members} valid members)")
-            return total_fitness
-
-        except Exception as e:
-            print(f"❌ Error in cumulative_fitness (Spec: {self.id}): {e}")
-            return 0.0
+        generation = generation-self.generation_offset if generation is not None else -1
+        return sum(float(member["fitness"]) for member in self.generations[generation])
 
     def member_count(self, generation: Optional[int]) -> int:
         generation = generation-self.generation_offset if generation is not None else -1
