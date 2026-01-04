@@ -91,7 +91,7 @@ async def run_evolution():
     
     # Reset/Init innovation counter
     _get_next_innovation_number() 
-    print(f"Initialized population: {len(population)} agents. Best Gen 0 Fitness: {-population[0].genome.fitness:.4f}")
+    print(f"Initialized population: {len(population)} agents. Best Gen 0 Fitness: {population[0].genome.fitness:.4f}")
 
     # 3. Evolution Strategy Setup
     selection_strategy = TournamentSelection(tournament_size=7)  
@@ -137,7 +137,7 @@ async def run_evolution():
             # Handle both list formats safely
             individual = item[1]
             
-            fit = -individual.genome.fitness # Invert back to positive Loss
+            fit = individual.genome.fitness
             total_individuals += 1
             total_loss += fit
 

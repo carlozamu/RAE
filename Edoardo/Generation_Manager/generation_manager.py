@@ -53,8 +53,8 @@ class CommaPlusStrategy(SurvivorSelectionStrategy):
         # Combine both populations
         combined = current_population + offspring_population
         
-        # Sort by fitness (descending) and select top N
-        sorted_combined = sorted(combined, key=lambda x: x['fitness'], reverse=True)
+        # Sort by fitness (ascending for minimization) and select top N
+        sorted_combined = sorted(combined, key=lambda x: x['fitness'], reverse=False)
         
         return sorted_combined[:population_size]
 
@@ -81,8 +81,8 @@ class CommaStrategy(SurvivorSelectionStrategy):
                 f"but only {len(offspring_population)} were generated"
             )
         
-        # Sort offspring by fitness and select top N
-        sorted_offspring = sorted(offspring_population, key=lambda x: x['fitness'], reverse=True)
+        # Sort offspring by fitness (ascending) and select top N
+        sorted_offspring = sorted(offspring_population, key=lambda x: x['fitness'], reverse=False)
         
         return sorted_offspring[:population_size]
 
@@ -180,15 +180,15 @@ class HallOfFameStrategy(SurvivorSelectionStrategy):
         combined = current_population + offspring_population
         all_individuals = combined + self.hall_of_fame
         
-        # Sort all by fitness and update hall of fame
-        sorted_all = sorted(all_individuals, key=lambda x: x['fitness'], reverse=True)
+        # Sort all by fitness (ascending) and update hall of fame
+        sorted_all = sorted(all_individuals, key=lambda x: x['fitness'], reverse=False)
         self.hall_of_fame = sorted_all[:self.hall_of_fame_size]
         
         # Select survivors: mix of best from combined population and hall of fame
         # Strategy: take top (population_size - hall_of_fame_size) from combined,
         # then add hall of fame members
         num_from_combined = max(0, population_size - len(self.hall_of_fame))
-        sorted_combined = sorted(combined, key=lambda x: x['fitness'], reverse=True)
+        sorted_combined = sorted(combined, key=lambda x: x['fitness'], reverse=False)
         
         survivors = sorted_combined[:num_from_combined]
         
@@ -286,7 +286,7 @@ class GenerationManager:
         best_fitness_history = []
         for gen in self.generation_history:
             if gen:
-                best_fitness = max(ind['fitness'] for ind in gen)
+                best_fitness = min(ind['fitness'] for ind in gen)
                 best_fitness_history.append(best_fitness)
         
         return {

@@ -133,6 +133,7 @@ class EvolutionManager:
             species_counts_raw[species] = 0
             
             if species.last_generation_index() == self.current_generation_index:
+                # Pass Global Average Score instead of Average Fitness
                 count = species.adjusted_offspring_count(average_fitness, self.current_generation_index)
                 species_counts_raw[species] = count
 
@@ -202,20 +203,30 @@ class EvolutionManager:
         # ---------------------------------------------------------
         print("   📊 Calculating Fitness Statistics & Allocating Slots...")
         
-        total_fitness = 0.0
+        total_fitness = 0.0 # Just for logging
+        total_global_score = 0.0 # For allocation
         total_individuals = 0
-        print(f"Starting from index {self.current_generation_index}, calculating total fitness across {len(self.species)} species")
+        
+        print(f"Starting from index {self.current_generation_index}, calculating stats across {len(self.species)} species")
         
         for species in self.species:
             if species.last_generation_index() == self.current_generation_index:
+                # Logging Stats
                 total_fitness += species.cumulative_fitness(self.current_generation_index)
                 total_individuals += species.member_count(self.current_generation_index)
+                
+                # Allocation Stats
+                sp_total_score, _ = species.get_allocation_score_stats(self.current_generation_index)
+                total_global_score += sp_total_score
         
         average_fitness = total_fitness / total_individuals if total_individuals > 0 else 0
-        print(f"      -> Global Avg Fitness: {average_fitness:.4f}| Total Fitness: {total_fitness} | Total Pop: {total_individuals}")
+        global_average_score = total_global_score / total_individuals if total_individuals > 0 else 0
+        
+        print(f"      -> Global Avg Fitness: {average_fitness:.4f} (neg loss) | Global Avg Score: {global_average_score:.4f}")
 
         # This determines how many babies each species is allowed to have
-        species_counts = self._compute_normalized_species_counts(average_fitness, total_individuals)
+        # Pass global_average_score as the 'average_fitness' argument for the allocation logic
+        species_counts = self._compute_normalized_species_counts(global_average_score, total_individuals)
 
         # 4. Process Each Species
         # ---------------------------------------------------------
