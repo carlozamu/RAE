@@ -23,7 +23,7 @@ def plot_complexity_vs_fitness(generation_data: list[Tuple[int, Phenotype]], gen
         os.makedirs(output_dir)
 
     # --- 1. Define the Custom Grid ---
-    x_anchors = [0, 0.3, 0.6, 1.0, 1.5, 2.0, 3.0, 3.5]
+    x_anchors = [0.1, 0.3, 0.5, 0.8, 1.5, 2.5]
     y_anchors = [1, 2, 5, 10, 20, 50, 100]
 
     x_positions = np.arange(len(x_anchors))
