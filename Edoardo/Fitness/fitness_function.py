@@ -14,7 +14,7 @@ class UnifiedFitnessCalculator:
                  w_accuracy=2.0,         # Peso per la correttezza della risposta (semantica)
                  w_rationale=2.0,        # Peso per la qualità del ragionamento (se presente)
                  w_token_cost=0.001,     # Penalità per la lunghezza (verbosità)
-                 w_complexity_cost=0.07): # Penalità per la complessità del grafo del prompt
+                 w_complexity_cost=0.1): # Penalità per la complessità del grafo del prompt
         
         # Pesi della Fitness Function
         self.w_acc = w_accuracy

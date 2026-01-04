@@ -55,8 +55,8 @@ class ElitismSelection(SelectionStrategy):
         """
         self._validate_population(population)
         
-        # Sort by fitness (descending)
-        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=True)
+        # Sort by fitness (ascending)
+        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=False)
         
         # Always include top elite_size individuals
         selected = sorted_pop[:min(self.elite_size, num_parents)]
@@ -96,8 +96,8 @@ class RankBasedSelection(SelectionStrategy):
         """
         self._validate_population(population)
         
-        # Sort by fitness (descending)
-        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=True)
+        # Sort by fitness (ascending)
+        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=False)
         n = len(sorted_pop)
         
         # Assign ranks (1 = best, n = worst)
@@ -152,7 +152,7 @@ class TournamentSelection(SelectionStrategy):
             # Randomly select tournament_size individuals
             tournament = random.sample(population, min(self.tournament_size, len(population)))
             # Select the best from the tournament
-            winner = max(tournament, key=lambda x: x['fitness'])
+            winner = min(tournament, key=lambda x: x['fitness'])
             selected.append(winner)
         
         return selected
@@ -184,11 +184,6 @@ class FitnessProportionateSelection(SelectionStrategy):
         else:
             fitnesses = [ind['fitness'] for ind in population]
         
-        # Handle negative fitnesses by shifting to positive
-        min_fitness = min(fitnesses)
-        if min_fitness < 0:
-            fitnesses = [f - min_fitness + 1e-6 for f in fitnesses]
-        
         # Calculate probabilities
         total_fitness = sum(fitnesses)
         if total_fitness == 0:
@@ -196,7 +191,7 @@ class FitnessProportionateSelection(SelectionStrategy):
             probabilities = [1.0 / len(population)] * len(population)
         else:
             probabilities = [f / total_fitness for f in fitnesses]
-        
+
         # Select based on probabilities
         selected = np.random.choice(
             len(population),

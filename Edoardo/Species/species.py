@@ -64,7 +64,7 @@ class Species:
                 unique_best[sig] = member_dict
                 
         # Convert back to list and sort
-        sorted_best = sorted(unique_best.values(), key=lambda x: x["fitness"], reverse=True)
+        sorted_best = sorted(unique_best.values(), key=lambda x: x["fitness"], reverse=False)
         
         # Keep top N
         self.hall_of_fame = sorted_best[:self.max_hof_size]
@@ -237,7 +237,7 @@ class Species:
             return selected
         else:
             # Fallback to original behavior: sort by fitness
-            sorted_members = sorted(population, key=lambda x: x["fitness"], reverse=True)
+            sorted_members = sorted(population, key=lambda x: x["fitness"], reverse=False)
             return sorted_members[:self.top_r]
 
     def _count_excess_genes(self, ind1: AgentGenome, ind2: AgentGenome) -> int:
