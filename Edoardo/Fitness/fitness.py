@@ -10,7 +10,7 @@ class Fitness:
             w_accuracy=2.0,
             w_rationale=2.0 if use_reasoning else 0.0, # Disable rationale weight if disabled
             w_token_cost=0.001,
-            w_complexity_cost=0.07,  #! DA SISTEMARE IN BASE A QUANTO GROSSO è IL GRAFO DI NORMA!
+            w_complexity_cost=0.01,  #! DA SISTEMARE IN BASE A QUANTO GROSSO è IL GRAFO DI NORMA!
             llm=llm
         )
     
@@ -58,7 +58,7 @@ class Fitness:
         fitness = 0.0
         for problem in problems_pool:
             fitness += await self.evaluate(phenotype, problem)
-        phenotype.genome.fitness = fitness / len(problems_pool) if problems_pool else inf
+        phenotype.genome.fitness = -(fitness / len(problems_pool) if problems_pool else inf)
         #print(f"Updated fitness: {self.genome.fitness}") 
 
     async def evaluate_population(self, population: list[Phenotype], problem_pool: list[dict]):
