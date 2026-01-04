@@ -87,7 +87,7 @@ class Species:
         Calculate adjusted offspring count based on Allocation Score.
         Formula: Count = SpeciesTotalScore / GlobalAverageScore
         """
-        print(f"Calculating adjusted offspring for Species {self.id} at Gen {generation}, with global avg score {global_average_score:.4f}")
+        #print(f"Calculating adjusted offspring for Species {self.id} at Gen {generation}, with global avg score {global_average_score:.4f}")
         species_age = generation - self.generation_offset
         
         # Get score stats for this species

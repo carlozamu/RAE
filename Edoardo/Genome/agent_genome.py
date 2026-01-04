@@ -301,8 +301,8 @@ class AgentGenome:
                       f"{len(cycle_edges)} edges remain in cycles.")
                 break
         
-        if iteration >= max_iterations and len(self.connections) > 0:
-            print(f"Warning: Max iterations reached in remove_cycles.")
+        # if iteration >= max_iterations and len(self.connections) > 0:
+        #     print(f"Warning: Max iterations reached in remove_cycles.")
         
         return edges_disabled
     

@@ -77,12 +77,12 @@ async def run_evolution():
         dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
 
     # 2. Population Initialization
-    initial_problems_pool = dataset_manager.get_batch(size=3)
+    initial_problems_pool = dataset_manager.get_batch()
     starting_prompt = "You are an expert reasoning AI. Given the input, provide a detailed and accurate response following the instructions."
     
     print("🌱 Seeding Population...")
     population = await initialize_population(
-        num_individuals=50, 
+        num_individuals=30, 
         prompt=starting_prompt, 
         problems_pool=initial_problems_pool, 
         llm_client=llm_client, 
@@ -122,7 +122,7 @@ async def run_evolution():
         new_gen = await evolution_manager.create_new_generation()
 
         current_gen_idx = evolution_manager.current_generation_index
-        plot_path = plot_complexity_vs_fitness(generation_data=new_gen, generation_idx=current_gen_idx, species_colors_registry=dict(encountered_species))
+        plot_path = plot_complexity_vs_fitness(generation_data=new_gen, generation_idx=current_gen_idx, species_colors_registry=encountered_species)
         subprocess.Popen(['xdg-open', plot_path])
         
         # B. Statistics Calculation

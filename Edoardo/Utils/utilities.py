@@ -12,87 +12,80 @@ import numpy as np
 import os
 import random
 from typing import Tuple, List
-from Phenotype.phenotype import Phenotype  # Ensure this import matches your project structure
+from Phenotype.phenotype import Phenotype
 
-def plot_complexity_vs_fitness(generation_data: list[Tuple[int, Phenotype]], generation_idx: int, species_colors_registry: dict[int, str], output_dir="plots") -> str:
+def plot_complexity_vs_fitness(generation_data: list[Tuple[int, Phenotype]], generation_idx: int, species_colors_registry: dict[str, str], output_dir="plots") -> str:
     """
-    Plots Complexity vs Fitness with LOGARITHMIC SCALES.
-    X-Axis: Loss (SymLog to handle 0). Ticks: [0, 0.3, 0.6, 1, 1.5, 2, 3]
-    Y-Axis: Complexity (Log). Ticks: [1, 2, 5, 10, 20, 50, 100]
+    Plots Complexity vs Fitness using a CUSTOM EQUIDISTANT SCALE.
+    Uses strict string casting to ensure consistent colors across generations.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # 1. Prepare Data Containers
-    xs = [] # Fitness (Loss)
-    ys = [] # Complexity (Nodes + Edges)
+    # --- 1. Define the Custom Grid ---
+    x_anchors = [0, 0.3, 0.6, 1.0, 1.5, 2.0, 3.0, 3.5]
+    y_anchors = [1, 2, 5, 10, 20, 50, 100]
+
+    x_positions = np.arange(len(x_anchors))
+    y_positions = np.arange(len(y_anchors))
+
+    # --- 2. Process Data & Assign Colors ---
+    mapped_xs = []
+    mapped_ys = []
     colors = []
     
-    # 2. Process Data & Assign Colors
     for species_id, phenotype in generation_data:
-        # X-Axis: Fitness (Loss)
-        xs.append(phenotype.genome.fitness)
-        
-        # Y-Axis: Complexity
+        # A. Transform Coordinates
+        real_loss = phenotype.genome.fitness
         num_nodes = len(phenotype.genome.nodes)
         num_conns = len([c for c in phenotype.genome.connections.values() if c.enabled])
-        # Ensure Y is at least 1 to avoid log(0) errors if an agent is somehow empty
-        ys.append(max(1, num_nodes + num_conns))
+        real_complexity = max(1, num_nodes + num_conns)
         
-        # Color Management
-        if species_id not in species_colors_registry:
+        m_x = np.interp(real_loss, x_anchors, x_positions)
+        m_y = np.interp(real_complexity, y_anchors, y_positions)
+        
+        mapped_xs.append(m_x)
+        mapped_ys.append(m_y)
+        
+        # B. Robust Color Management (STRICT CASTING)
+        # We cast the ID to string immediately. This is the master key.
+        lookup_key = str(species_id)
+        
+        if lookup_key not in species_colors_registry:
+            # Generate new color only if this specific string key is missing
             r = random.randint(30, 200)
             g = random.randint(30, 200)
             b = random.randint(30, 200)
-            hex_color = f'#{r:02x}{g:02x}{b:02x}'
-            species_colors_registry[species_id] = hex_color
+            species_colors_registry[lookup_key] = f'#{r:02x}{g:02x}{b:02x}'
             
-        colors.append(species_colors_registry[species_id])
+        colors.append(species_colors_registry[lookup_key])
 
-    # 3. Create Plot
+    # --- 3. Create Plot ---
     plt.figure(figsize=(10, 7))
     
-    # Scatter plot
-    plt.scatter(xs, ys, c=colors, alpha=0.7, edgecolors='black', linewidth=0.5, s=60)
+    plt.scatter(mapped_xs, mapped_ys, c=colors, alpha=0.7, edgecolors='black', linewidth=0.5, s=60)
     
-    # 4. LOGARITHMIC AXIS CONFIGURATION
-    # ---------------------------------------------------------
+    # --- 4. Fake the Axis Labels ---
+    plt.xticks(x_positions, [str(x) for x in x_anchors])
+    plt.yticks(y_positions, [str(y) for y in y_anchors])
     
-    # --- Y-Axis: Standard Log Scale ---
-    plt.yscale('log')
-    plt.ylim(0.9, 110) # Set limits slightly wider than [1, 100] so dots aren't cut off
-    
-    # Custom Ticks for Y
-    y_ticks = [1, 2, 5, 10, 20, 50, 100]
-    plt.yticks(y_ticks, [str(y) for y in y_ticks])
+    plt.xlim(-0.5, len(x_anchors) - 0.5)
+    plt.ylim(-0.5, len(y_anchors) - 0.5)
 
-    # --- X-Axis: Symmetrical Log Scale (SymLog) ---
-    # SymLog behaves like log, but is linear around zero (linthresh determines the linear range)
-    # This allows us to plot 0 without error.
-    plt.xscale('symlog', linthresh=0.1) 
-    plt.xlim(-0.05, 3.5) # Start slightly below 0 to visualize the 0 line clearly
-    
-    # Custom Ticks for X as requested
-    x_ticks = [0, 0.3, 0.6, 1, 1.5, 2, 3]
-    plt.xticks(x_ticks, [str(x) for x in x_ticks])
-    
-    # ---------------------------------------------------------
-
-    plt.title(f"Generation {generation_idx}: Complexity vs. Loss (Log Scales)")
+    plt.title(f"Generation {generation_idx}: Complexity vs. Loss")
     plt.xlabel("Loss (Fitness) -> Lower is Better")
     plt.ylabel("Complexity (Nodes + Enabled Edges)")
-    
-    # Add grid (using 'both' ensures minor log grid lines appear too)
-    plt.grid(True, which="major", linestyle='-', alpha=0.6)
-    plt.grid(True, which="minor", linestyle=':', alpha=0.3)
-    
+    plt.grid(True, linestyle='--', alpha=0.5)
+
     # Legend Logic
-    active_species_ids = set(item[0] for item in generation_data)
+    # We use the same casting logic to group items for the legend
+    active_species_ids = set(str(item[0]) for item in generation_data)
     legend_handles = []
-    for s_id in active_species_ids:
-        color = species_colors_registry[s_id]
-        label_id = str(s_id)[:6] if isinstance(s_id, str) else str(s_id)
-        patch = plt.Line2D([0], [0], marker='o', color='w', label=f"Spec {label_id}", 
+    
+    # Sort them so the legend order doesn't jump around randomly
+    for s_key in sorted(list(active_species_ids)):
+        color = species_colors_registry[s_key]
+        patch = plt.Line2D([0], [0], marker='o', color='w', label=f"Spec {s_key[:6]}", 
                           markerfacecolor=color, markersize=10)
         legend_handles.append(patch)
     
