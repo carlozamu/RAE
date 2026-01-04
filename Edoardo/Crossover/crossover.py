@@ -30,23 +30,26 @@ class Crossover:
                     offspring_genome.add_node(parent1_genome.nodes[node_innovation_number].copy())
                 except KeyError:
                     offspring_genome.add_node(parent2_genome.nodes[node_innovation_number].copy())
-        edge_list = list(c for c in parent1_genome.connections.keys()) + list(c for c in parent2_genome.connections.keys())
-        edge_list = list(set(edge_list))  # Remove duplicates
+        edge_list = list(set(list(parent1_genome.connections.keys()) + list(parent2_genome.connections.keys())))
         for edge_id in edge_list:
             if edge_id in parent1_genome.connections.keys() and edge_id in parent2_genome.connections.keys():
                 if np.random.rand() < 0.5:
                     inherited_connection = parent1_genome.connections[edge_id].copy()
                     offspring_genome.add_connection(inherited_connection.in_node, inherited_connection.out_node)
+                    offspring_genome.connections[edge_id].enabled = parent1_genome.connections[edge_id].enabled
                 else:
                     inherited_connection = parent2_genome.connections[edge_id].copy()
                     offspring_genome.add_connection(inherited_connection.in_node, inherited_connection.out_node)
+                    offspring_genome.connections[edge_id].enabled = parent2_genome.connections[edge_id].enabled
             else:
                 try:
                     inherited_connection = parent1_genome.connections[edge_id].copy()
                     offspring_genome.add_connection(inherited_connection.in_node, inherited_connection.out_node)
+                    offspring_genome.connections[edge_id].enabled = parent1_genome.connections[edge_id].enabled
                 except KeyError:
                     inherited_connection = parent2_genome.connections[edge_id].copy()
                     offspring_genome.add_connection(inherited_connection.in_node, inherited_connection.out_node)
+                    offspring_genome.connections[edge_id].enabled = parent2_genome.connections[edge_id].enabled
         
         # Remove any cycles that may have been created during crossover
         offspring_genome.remove_cycles()
