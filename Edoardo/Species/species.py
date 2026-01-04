@@ -15,11 +15,11 @@ class Species:
     top_r = 10
     c1 = 1.0  # Coefficient for excess genes
     c2 = 1.0  # Coefficient for disjoint genes
-    c3 = 0.4  # Coefficient for edges count difference
-    c4 = 0.2  # Coefficient for average node differences
+    c3 = 1.0  # Coefficient for edges count difference
+    c4 = 0.5  # Coefficient for average node differences
     protection_base = 3  # Base number of generations for protection
     adjust_rate_protected_species = 1.5  # Adjustment rate for protected species
-    compatibility_threshold = 3.0  # Threshold for species compatibility
+    compatibility_threshold = 1.3  # Threshold for species compatibility
     species_id_counter = 0
 
     def __init__(self, initial_members: List[Phenotype], generation: int = 0, selection_strategy: Optional['SelectionStrategy'] = None, max_hof_size: int = 10):
@@ -187,9 +187,11 @@ class Species:
         candidate_genome = candidate.genome
         excess_genes = self._count_excess_genes(population_member.genome, candidate_genome)
         disjoint_genes = self._count_disjoint_genes(population_member.genome, candidate_genome)
-        max_number_of_genes = max(len(population_member.genome.nodes), len(candidate_genome.nodes))
+        max_number_of_genes = max(len(population_member.genome.nodes), len(candidate_genome.nodes), 1)
         average_weight_diff = self._compute_average_weight_difference(population_member.genome, candidate.genome)
-        max_number_of_edges = max(len(population_member.genome.connections), len(candidate_genome.connections),1)
+        population_member_active_edges = [edge for edge in population_member.genome.connections.keys() if population_member.genome.connections[edge].enabled]
+        candidate_active_edges = [edge for edge in candidate_genome.connections.keys() if candidate_genome.connections[edge].enabled]
+        max_number_of_edges = max(len(population_member_active_edges), len(candidate_active_edges), 1)
         different_edges = self._count_different_edges(population_member.genome, candidate_genome)
         compatibility_distance = (Species.c1 * (excess_genes/max_number_of_genes) +
                                   Species.c2 * (disjoint_genes/max_number_of_genes) +
@@ -271,8 +273,8 @@ class Species:
                 print(f"⚠️ Error: Invalid inputs to _count_different_edges. types: {type(ind1)}, {type(ind2)}")
                 return 0
 
-            ind1_edges = set(ind1.connections.keys())
-            ind2_edges = set(ind2.connections.keys())
+            ind1_edges = set([edge for edge in ind1.connections.keys() if ind1.connections[edge].enabled])
+            ind2_edges = set([edge for edge in ind2.connections.keys() if ind2.connections[edge].enabled])
             
             # Symmetric Difference: (A - B) U (B - A)
             # Find edges that are unique to either ind1 or ind2
@@ -280,9 +282,6 @@ class Species:
             unique_to_2 = ind2_edges.difference(ind1_edges)
             
             total_diff = len(unique_to_1) + len(unique_to_2)
-            
-            # Optional Debug (Uncomment if needed)
-            # print(f"   [DiffEdges] Ind1: {len(ind1_edges)}, Ind2: {len(ind2_edges)} -> Diff: {total_diff}")
             
             return total_diff
 

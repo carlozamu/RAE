@@ -29,11 +29,11 @@ class EvolutionManager:
                  top_r = 10, # Top R individuals considered for selection in fallback mechanism for species
                  c1 = 1.0,  # Coefficient for excess genes in species compatibility
                  c2 = 1.0,  # Coefficient for disjoint genes in species compatibility
-                 c3 = 0.4,  # Coefficient for different edges count in species compatibility
-                 c4 = 0.2,  # Coefficient for average node differences in species compatibility
+                 c3 = 1.0,  # Coefficient for different edges count in species compatibility
+                 c4 = 0.5,  # Coefficient for average node differences in species compatibility
                  protection_base = 3,  # Base number of generations for protection of species
                  adjust_rate_protected_species = 1.5,  # Adjustment rate for protected species
-                 compatibility_threshold = 3.0  # Threshold for species compatibility
+                 compatibility_threshold = 1.3  # Threshold for species compatibility
     ):
         """Manages the evolution process across generations and species.
         :param selection_strategy: Strategy to select parents.
@@ -382,6 +382,7 @@ class EvolutionManager:
                 new_species = True
                 next_generation = self.current_generation_index + 1
                 for s in self.species:
+                    # only work with active species
                     if s.last_generation_index() >= self.current_generation_index:
                         if s.belongs_to_species(child_phenotype, self.current_generation_index) and s != species and s.generation_offset == next_generation:
                             # child belongs to newly created species along another individual
