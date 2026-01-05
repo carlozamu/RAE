@@ -34,7 +34,7 @@ class EvolutionManager:
                  c4 = 0.5,  # Coefficient for average node differences in species compatibility
                  protection_base = 3,  # Base number of generations for protection of species
                  adjust_rate_protected_species = 1.5,  # Adjustment rate for protected species
-                 compatibility_threshold = 0.51  # Threshold for species compatibility
+                 compatibility_threshold = 2.51  # Threshold for species compatibility
     ):
         """Manages the evolution process across generations and species.
         :param selection_strategy: Strategy to select parents.
@@ -161,136 +161,166 @@ class EvolutionManager:
     
         return normalized_species_counts
         
+    # Inside evolution_manager.py
+
     async def create_new_generation(self) -> list[Tuple[int, Phenotype]]:
-        """
-        Creates a new generation of individuals based on the fitness of the current generation.
-        Uses the injected survivor_strategy to select the next generation for each species.
-        Includes robust error handling and debug logging.
-        """
         print(f"\n--- 🧬 Evolution Manager: Starting Generation {self.current_generation_index + 1} ---")
         
-        # 1. Update Hall of Fame
-        # ---------------------------------------------------------
-        print("   🏆 Updating Hall of Fame...")
+        # 1. Update HoF and clean empty species
+        self.species = [s for s in self.species if s.member_count(self.current_generation_index) > 0]
         for species in self.species:
-            if species.last_generation_index() == self.current_generation_index:
-                species.update_hall_of_fame()
+            species.update_hall_of_fame()
 
-        # 2. Generate Problem Pool
-        # ---------------------------------------------------------
-        print("   🧪 Generating new Problem Pool...")
+        problem_pool = self.get_problem_pool()
+
+        # 2. Safe Fitness Calculation (Handling inf)
+        total_adjusted_fitness = 0.0
+        valid_species = []
         
-        # We use the same pool for all species to ensure fair comparison
-        problem_pool: List[Dict[str, str]] = self.get_problem_pool()
-        #print(f"      -> Pool size: {len(problem_pool)}")
-        # 3. Calculate Fitness Stats & Allocate Slots (Speciation)
-        # ---------------------------------------------------------
-        total_fitness = 0.0
-        total_individuals = 0
-        print(f"Starting from index {self.current_generation_index}, calculating total fitness across {len(self.species)} species")
+        # We invert fitness here because you want to minimize Loss.
+        # Higher 'inverse_fitness' = More offspring
+        for s in self.species:
+            avg_loss = s.cumulative_fitness(self.current_generation_index) / max(1, s.member_count(self.current_generation_index))
+            
+            # Clamp infinite loss to a large number (e.g., 100.0) to prevent math errors
+            if avg_loss == float('inf') or avg_loss > 1000:
+                avg_loss = 1000.0
+                
+            # Fitness formula: 1 / avg_loss
+            # (Low loss = High fitness score for allocation)
+            s_fitness_score = 1.0 / max(1e-9, avg_loss) 
+            
+            # Store for allocation calculation
+            s.temp_fitness_score = s_fitness_score
+            total_adjusted_fitness += s_fitness_score
+            valid_species.append(s)
+
+        # 3. Allocate Slots (Exact Count)
+        target_pop_size = 30
+        allocated_slots = {}
+        total_allocated = 0
         
-        for species in self.species:
-            if species.last_generation_index() == self.current_generation_index:
-                fitness = species.cumulative_fitness(self.current_generation_index)
-                if not math.isinf(fitness):
-                    total_fitness += fitness
-                    total_individuals += species.member_count(self.current_generation_index)
+        # First pass: Integers
+        for s in valid_species:
+            share = (s.temp_fitness_score / total_adjusted_fitness) * target_pop_size
+            slots = max(1, int(round(share))) # Ensure at least 1 if it survived this far
+            allocated_slots[s.id] = slots
+            total_allocated += slots
+
+        # Second pass: Force sum to exactly 30
+        # If we have too many, remove from the worst performing (highest loss)
+        sorted_species = sorted(valid_species, key=lambda x: x.temp_fitness_score) # Ascending fitness (Worst first)
         
-        average_fitness = (total_fitness / total_individuals) if total_individuals > 0 else 0
-        print(f"      -> Global Avg Fitness: {average_fitness:.4f}| Total Fitness: {total_fitness} | Total Pop: {total_individuals}")
+        while total_allocated > target_pop_size:
+            for s in sorted_species:
+                if allocated_slots[s.id] > 1: # Don't kill species completely yet
+                    allocated_slots[s.id] -= 1
+                    total_allocated -= 1
+                    if total_allocated == target_pop_size: break
+            # If still over, force remove from random
+            if total_allocated > target_pop_size:
+                rid = random.choice([s.id for s in valid_species if allocated_slots[s.id] > 0])
+                allocated_slots[rid] -= 1
+                total_allocated -= 1
 
-        # This determines how many offsprings each species is allowed to have
-        species_counts = self._compute_normalized_species_counts(average_fitness, total_individuals)
+        # If we have too few, add to best performing
+        while total_allocated < target_pop_size:
+            best_s = sorted_species[-1] # Best is last
+            allocated_slots[best_s.id] += 1
+            total_allocated += 1
 
+        print(f"   📊 Allocation complete. Total Slots: {total_allocated}")
 
-        # 4. Process Each Species
-        # ---------------------------------------------------------
-        active_species_count = 0
-        pbar = tqdm(total=30, desc=f"Gen {self.current_generation_index+1} - Starting Offsprings Creation", unit="child")
-        species_tuple = tuple(self.species)  # To avoid modification during iteration
-        for species in species_tuple:
-            # Skip species that died out previously
-            if species.last_generation_index() != self.current_generation_index:
-                continue
+        # 4. Breeding & Selection Loop
+        next_gen_population: List[Phenotype] = []
+        
+        pbar = tqdm(total=target_pop_size, desc="Breeding & Selecting")
+        
+        for species in valid_species:
+            slots = allocated_slots.get(species.id, 0)
+            if slots == 0: continue
+                
+            # A. Breed
+            # Breed slightly more than allocated slots (e.g., 1.5x) to ensure selection pressure
+            # so the survivor strategy has candidates to discard.
+            num_children = slots
+            offspring = await self.create_offsprings(species, num_children, problem_pool, pbar)
             
-            # Retrieve allocated slot count
-            new_species_target_count = species_counts.get(species, 1)
+            # B. Get Current Members
+            current_members = [x['member'] for x in species.get_all_members_from_generation(self.current_generation_index)]
             
-            # If the species is extinct due to poor performance
-            if new_species_target_count <= 0:
-                print(f"   💀 Species {species.id} has gone extinct (0 slots allocated).")
-                continue
-
-            #print(f"\n   🦕 Processing Species {species.id} (Target: {new_species_target_count})...")
-            active_species_count += 1
-
+            # C. Re-evaluate Parents on new pool (Fairness)
+            # We must re-eval parents so they share the same fitness baseline as children
+            await self.fitness_evaluator.evaluate_population(current_members, problem_pool)
             
-
-            # A. Create Offspring
-            # ---------------------------------------
-            # We usually generate exactly the target count, or slightly more if we want selection pressure
-            print(f"      Creating {new_species_target_count} offspring...")
-            pbar.set_description(f"Breeding Species {species.id}")
-            
-            offsprings = await self.create_offsprings(species, new_species_target_count, problem_pool=problem_pool, pbar=pbar)
-            
-            if not offsprings:
-                print(f"      ⚠️ Warning: No offspring produced for species {species.id}. Skipping.")
-                continue
-
-            # B. Gather Candidates (Parents + Children)
-            # ---------------------------------------
-            current_members = species.get_all_members_from_generation(self.current_generation_index)
-            current_phenotypes = [item['member'] for item in current_members]
-            
-            all_candidates = current_phenotypes + offsprings
-            print(f"      Candidates: {len(current_phenotypes)} Parents + {len(offsprings)} Offspring = {len(all_candidates)} Total")
-
-            # C. Evaluate EVERYONE on the NEW Problem Pool
-            # ---------------------------------------
-            # This is crucial: Parents might have high fitness from an "easy" previous batch.
-            # Re-evaluating them on the new batch ensures fair competition with children.
-            print("      Evaluating all candidates on new problem pool...")
-            await self.fitness_evaluator.evaluate_population(population=all_candidates, problem_pool=problem_pool)
-
-            # D. Prepare Data for Selection Strategy
-            # ---------------------------------------
-            offspring_dicts = [{"member": child, "fitness": child.genome.fitness} for child in offsprings]
-            
-            # Parent dicts need updated fitness from the re-evaluation above
-            current_pop_dicts = [{"member": p, "fitness": p.genome.fitness} for p in current_phenotypes]
-
-            # E. Select Survivors
-            # ---------------------------------------
-            # For Comma Strategy (Children replace parents): target_size is just the allocated count
-            # For Plus Strategy (Best of both): target_size is also the allocated count
-            print("      Selecting survivors...")
-            selected_individuals_dicts = self.survivor_strategy.select_survivors(
-                current_population=current_pop_dicts,
-                offspring_population=offspring_dicts,
-                population_size=len(offsprings)
+            # D. Survivor Selection
+            # We pass the split populations so the strategy can decide if parents are eligible (Plus) or not (Comma)
+            survivors_dicts = self.survivor_strategy.select_survivors(
+                current_population=[{"member": m, "fitness": m.genome.fitness} for m in current_members],
+                offspring_population=[{"member": m, "fitness": m.genome.fitness} for m in offspring],
+                population_size=slots # STRICTLY enforce this size
             )
-
-            selected_individuals = [item['member'] for item in selected_individuals_dicts]
-            print(f"      ✅ Selected {len(selected_individuals)} survivors for next gen.")
-
-            # F. Add to Next Generation Storage
-            # ---------------------------------------
-            species.add_members(selected_individuals, generation=self.current_generation_index + 1)
-
+            
+            survivors = [x['member'] for x in survivors_dicts]
+            next_gen_population.extend(survivors)
+            
         pbar.close()
-
-        # 5. Finalize Generation
-        # ---------------------------------------------------------
-        if active_species_count == 0:
-            print("   ⚠️ WARNING: All species have gone extinct!")
-            # Optional: Re-seed population here?
+        
+        # 5. Global Speciation (The "Clean Up")
+        print(f"   🧩 Speciating {len(next_gen_population)} survivors...")
         
         self.current_generation_index += 1
-        print(f"--- ✅ Generation {self.current_generation_index} Finalized ---\n")
-
-        return self.get_latest_generation()
+        next_gen_idx = self.current_generation_index
         
+        # [FIX 1] Iterate over a COPY of the species list ([:])
+        # This ensures that if we append new species during the loop, 
+        # we don't iterate over them immediately or break the iterator.
+        
+        # We also need to handle new species created *during* this loop.
+        # If an individual doesn't fit existing species, it creates a new one.
+        # That new one should be available for SUBSEQUENT individuals in this same batch.
+        
+        active_species_pool = self.species[:] # Snapshot of "Old" species
+
+        for individual in next_gen_population:
+            placed = False
+            
+            # Check against the Snapshot (Established Species)
+            for s in active_species_pool:
+                if s.belongs_to_species(individual): # No generation needed, uses stored Rep
+                    s.add_members([individual], generation=next_gen_idx)
+                    placed = True
+                    break
+            
+            # If not placed in old species, check against NEWLY created species
+            # (This groups orphans together instead of making 1 species per orphan)
+            if not placed:
+                # Check against species added to self.species during this loop
+                # We iterate only the new ones
+                newly_added = self.species[len(active_species_pool):]
+                for s in newly_added:
+                    if s.belongs_to_species(individual):
+                        s.add_members([individual], generation=next_gen_idx)
+                        placed = True
+                        break
+
+            if not placed:
+                # Create completely new species
+                # The first member becomes the implicit representative via __init__
+                new_s = Species([individual], generation=next_gen_idx, max_hof_size=self.per_species_hof_size)
+                self.species.append(new_s)
+                
+        # Remove species that received no members in this new generation
+        self.species = [s for s in self.species if s.member_count(next_gen_idx) > 0]
+        
+        # --- ADD THIS BLOCK ---
+        for s in self.species:
+            s.elect_new_representative()
+        # ----------------------
+
+        print(f"   ✅ Generation {next_gen_idx} Complete. Active Species: {len(self.species)}")
+        return self.get_latest_generation()
+    
     def get_active_species_count(self):
         """
         Counts the number of species that have members in the current generation.
@@ -333,63 +363,49 @@ class EvolutionManager:
             fitness = individual.get('fitness', 0)
             obj_repr = str(member)
             return hashlib.md5(f"{fitness}_{obj_repr}".encode()).hexdigest()
-       
 
-
-
-    async def create_offsprings(self, species, num_offsprings: int,  problem_pool:List[Dict[str, str]], pbar: tqdm=None)-> List[Phenotype]:
+    async def create_offsprings(self, species, num_offsprings: int, problem_pool: List[Dict[str, str]], pbar: tqdm = None) -> List[Phenotype]:
         """
-        Creates num_offsprings offspring from a given species.
+        Creates num_offsprings from a species. 
+        Does NOT assign them to species yet. strictly breeding.
         """
         offsprings = []
-        for _ in range(num_offsprings):
-            healthy_child = False
-            child = None
-            while not healthy_child:
-                parents = self.select_parents(species, self.num_parents)
-                child = Crossover.create_offspring(parents[0].genome, parents[1].genome)
-                # Calculate dynamic mutation probabilities
-                child_mutation_config: dict = self.mutator.get_dynamic_config(
-                    generation=self.current_generation_index, 
-                    parent_node_count=len(child.nodes)
-                )
-                
-                #mutate offspring
-                mutated_child: AgentGenome = await self.mutator.mutate(genome=child, runtime_config=child_mutation_config)
-                child_phenotype = Phenotype(genome=mutated_child, llm_client=self.llm_client)
-                await self.fitness_evaluator._update_fitness(problems_pool=problem_pool, phenotype=child_phenotype)
-                new_species = True
-                next_generation = self.current_generation_index + 1
-                current_species = tuple(self.species)
-                for s in current_species:
-                    # only work with active species
-                    if s.last_generation_index() >= self.current_generation_index:
-                        if s.belongs_to_species(child_phenotype, self.current_generation_index) and s == species:
-                            # child belongs to the same species as parents
-                            healthy_child = True
-                            new_species = False
-                            offsprings.append(child_phenotype)
-                            break
-                        elif s.belongs_to_species(child_phenotype, self.current_generation_index) and s != species and s.generation_offset == next_generation:
-                            # child belongs to newly created species along another individual
-                            healthy_child = True
-                            new_species = False
-                            s.add_members([child_phenotype], generation=next_generation)
-                            break
-                        elif s.belongs_to_species(child_phenotype, self.current_generation_index) and s != species:
-                            # child belongs to another existing species. Abort and retry
-                            healthy_child = False
-                            new_species = False
-                            #break
-                if new_species:
-                    # child creates a new species
-                    healthy_child = True
-                    self.species.append(Species([child_phenotype], generation=next_generation, max_hof_size=self.per_species_hof_size))
+        # Safety break to prevent infinite loops if parents are incompatible
+        attempts = 0
+        max_attempts = num_offsprings * 5 
+
+        while len(offsprings) < num_offsprings and attempts < max_attempts:
+            attempts += 1
+            
+            # 1. Select Parents & Crossover
+            parents = self.select_parents(species, self.num_parents)
+            if len(parents) < 2:
+                # Fallback if species is too small
+                child_genome = parents[0].genome.copy() # Clone
+            else:
+                child_genome = Crossover.create_offspring(parents[0].genome, parents[1].genome)
+
+            # 2. Mutation
+            child_mutation_config = self.mutator.get_dynamic_config(
+                generation=self.current_generation_index, 
+                parent_node_count=len(child_genome.nodes)
+            )
+            mutated_genome = await self.mutator.mutate(genome=child_genome, runtime_config=child_mutation_config)
+            
+            # 3. Create Phenotype & Evaluate
+            child_phenotype = Phenotype(genome=mutated_genome, llm_client=self.llm_client)
+            
+            # Evaluate immediately
+            await self.fitness_evaluator._update_fitness(problems_pool=problem_pool, phenotype=child_phenotype)
+            
+            offsprings.append(child_phenotype)
+            
             if pbar:
                 pbar.update(1)
+                
         return offsprings
 
-    def select_parents(self, species: Species, num_parents: int) -> List:
+    def select_parents(self, species: Species, num_parents: int) -> List[Phenotype]:
         """
         Select parents from a species using the injected selection strategy AND Hall of Fame.
 
@@ -404,7 +420,7 @@ class EvolutionManager:
         num_hof_parents = int(num_parents * self.hof_parent_ratio) if self.per_species_hof_size > 0 and hof_members else 0
         num_species_parents = num_parents - num_hof_parents
         
-        selected_parents = []
+        selected_parents: List[Phenotype] = []
         
         # 1. Select from HoF (Randomly, as a simple diversity injection)
         if num_hof_parents > 0:

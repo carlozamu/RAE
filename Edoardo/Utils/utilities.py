@@ -108,52 +108,84 @@ import json
 import os
 from datetime import datetime
 
-def log_generation_to_json(new_gen: list[Tuple[int, Phenotype]], generation_idx: int, filename="evolution_history.jsonl"):
+import json
+from datetime import datetime
+from typing import List, Tuple
+from Phenotype.phenotype import Phenotype
+
+def log_generation_to_json(new_gen: List[Tuple[int, Phenotype]], generation_idx: int, filename="evolution_history.jsonl"):
     """
-    Serializes generation metadata and performs a deep dive log of the 
-    best individual (lowest loss) in the population.
+    Logs metadata for the entire population and performs a full genome dump 
+    of the best individual (lowest loss).
     """
     if not new_gen:
         return
 
-    # 1. Find the best individual (first one with the minimum fitness/loss)
-    best_entry = min(new_gen, key=lambda x: x[1].genome.fitness)
-    best_species_id, best_phenotype = best_entry
+    # 1. Identify the best individual
+    # We sort to find the best, but we also want to iterate over everyone.
+    sorted_pop = sorted(new_gen, key=lambda x: x[1].genome.fitness)
+    best_species_id, best_phenotype = sorted_pop[0]
 
-    # 2. Prepare the high-level log entry
+    # 2. Collect summaries for ALL individuals
+    population_summaries = []
+    
+    for species_id, phenotype in new_gen:
+        genome = phenotype.genome
+        
+        # Count enabled connections for accurate complexity stats
+        enabled_edges = len([c for c in genome.connections.values() if c.enabled])
+        
+        summary = {
+            "species_id": species_id,
+            "genome_id": genome.id,
+            "fitness": float(genome.fitness),
+            "num_nodes": len(genome.nodes),
+            "num_connections_total": len(genome.connections),
+            "num_connections_enabled": enabled_edges
+        }
+        population_summaries.append(summary)
+
+    # 3. Construct the Full Log Entry
     log_entry = {
         "timestamp": datetime.now().isoformat(),
         "generation": generation_idx,
-        "population_size": len(new_gen),
-        "best_individual_stats": {
+        "population_count": len(new_gen),
+        
+        # A. Summary of everyone
+        "population": population_summaries,
+        
+        # B. Detailed Dump of the Best Agent ONLY
+        "best_individual_dump": {
             "species_id": best_species_id,
-            "loss": float(best_phenotype.genome.fitness),
-            "complexity": len(best_phenotype.genome.nodes) + len(best_phenotype.genome.connections)
-        },
-        # --- THE FULL PHENOTYPE EXPORT ---
-        "best_individual_full": {
             "genome_id": best_phenotype.genome.id,
+            "final_fitness": float(best_phenotype.genome.fitness),
+            "start_node_id": best_phenotype.genome.start_node_innovation_number,
+            "end_node_id": best_phenotype.genome.end_node_innovation_number,
+            
+            # Dump all nodes
             "nodes": [
                 {
-                    "id": n.id,
-                    "content": n.instruction  # The actual prompt/instructions in the node
+                    "innovation_number": n.innovation_number,
+                    "name": n.name,
+                    "instruction": n.instruction
                 } for n in best_phenotype.genome.nodes.values()
             ],
+            
+            # Dump all connections
             "connections": [
                 {
-                    "in": c.in_node, 
-                    "out": c.out_node, 
+                    "innovation_number": c.innovation_number,
+                    "in_node": c.in_node,
+                    "out_node": c.out_node,
                     "enabled": c.enabled
                 } for c in best_phenotype.genome.connections.values()
-            ],
-            # If your phenotype stores the history of LLM calls or specific prompts
-            "system_metadata": getattr(best_phenotype, 'metadata', {}) 
+            ]
         }
     }
 
-    # 3. Append to file
+    # 4. Append to JSONL file
     try:
         with open(filename, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry) + "\n")
     except Exception as e:
-        print(f"❌ Failed to log full phenotype JSON: {e}")
+        print(f"❌ Failed to log generation JSON: {e}")

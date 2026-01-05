@@ -29,6 +29,8 @@ class Species:
         self.selection_strategy = selection_strategy
         self.max_hof_size = max_hof_size
         self.hall_of_fame: List[Dict[str, Any]] = []
+        self.representative = initial_members[0] # Keep a persistent representative
+
         
         # We assume members already have their fitness evaluated before being added to species
         members: List[Dict[str, Union[Phenotype, float]]] = [{"member": member, "fitness": member.genome.fitness} for member in initial_members]
@@ -171,33 +173,71 @@ class Species:
         return total_distance / valid_comparisons if valid_comparisons > 0 else 0.0
 
 
-    def belongs_to_species(self, candidate: Phenotype, generation: Optional[int]) -> bool:
+    def get_compatibility_distance(self, genome1: AgentGenome, genome2: AgentGenome) -> float:
         """
-        Docstring for belongs_to_species
+        Calculates the compatibility distance between two genomes.
+        Formula: δ = c1*(E/N) + c2*(D/N) + c3*(ΔEdges/M) + c4*ΔWeight
+        
+        :param genome1: First genome to compare
+        :param genome2: Second genome to compare
+        :return: The calculated distance (float)
+        """
+        # 1. Gene Computations (Nodes)
+        excess_genes = self._count_excess_genes(genome1, genome2)
+        disjoint_genes = self._count_disjoint_genes(genome1, genome2)
+        
+        # Normalizer for genes (N) -> Standard NEAT uses 1 if genome size < 20, but max() is safer for large networks
+        max_number_of_genes = max(len(genome1.nodes), len(genome2.nodes), 1)
 
-        :param candidate: Phenotype(phenotype needed since fitness will be saveed along with it)
-        :param generation: number of generation to compare with, if None the last generation is used
-        :return: bool
+        # 2. Weight/Embedding Difference (Semantic distance)
+        average_weight_diff = self._compute_average_weight_difference(genome1, genome2)
+
+        # 3. Structural Edge Differences (Topology distance)
+        # Note: We filter for ENABLED edges usually, but checking all keys is also valid depending on implementation.
+        # Your previous code checked enabled edges for the normalizer but keys for difference. 
+        # Here we align them to be consistent (using enabled edges for both is standard).
+        
+        g1_enabled = [k for k, v in genome1.connections.items() if v.enabled]
+        g2_enabled = [k for k, v in genome2.connections.items() if v.enabled]
+        
+        # Recalculating edge difference here locally to ensure consistency with the enabled list
+        unique_to_1 = set(g1_enabled) - set(g2_enabled)
+        unique_to_2 = set(g2_enabled) - set(g1_enabled)
+        different_edges = len(unique_to_1) + len(unique_to_2)
+        
+        # Normalizer for edges
+        max_number_of_edges = max(len(g1_enabled), len(g2_enabled), 1)
+
+        # 4. Final Calculation
+        distance = (
+            Species.c1 * (excess_genes / max_number_of_genes) +
+            Species.c2 * (disjoint_genes / max_number_of_genes) +
+            Species.c3 * (different_edges / max_number_of_edges) +
+            Species.c4 * average_weight_diff
+        )
+        
+        return distance
+
+    def belongs_to_species(self, candidate: Phenotype, generation: Optional[int] = None) -> bool:
         """
-        generation = generation-self.generation_offset if generation is not None else -1
-        population_member: Phenotype = self.generations[generation][0]["member"]
-        candidate_genome = candidate.genome
-        excess_genes = self._count_excess_genes(population_member.genome, candidate_genome)
-        disjoint_genes = self._count_disjoint_genes(population_member.genome, candidate_genome)
-        max_number_of_genes = max(len(population_member.genome.nodes), len(candidate_genome.nodes), 1)
-        average_weight_diff = self._compute_average_weight_difference(population_member.genome, candidate.genome)
-        population_member_active_edges = [edge for edge in population_member.genome.connections.keys() if population_member.genome.connections[edge].enabled]
-        candidate_active_edges = [edge for edge in candidate_genome.connections.keys() if candidate_genome.connections[edge].enabled]
-        max_number_of_edges = max(len(population_member_active_edges), len(candidate_active_edges), 1)
-        different_edges = self._count_different_edges(population_member.genome, candidate_genome)
-        compatibility_distance = (Species.c1 * (excess_genes/max_number_of_genes) +
-                                  Species.c2 * (disjoint_genes/max_number_of_genes) +
-                                  Species.c3 * (different_edges/max_number_of_edges) +
-                                  Species.c4 * (average_weight_diff))
-        #print(f"Compatibility distance: {compatibility_distance:.4f}")
-        return compatibility_distance < self.compatibility_threshold
+        Checks if a candidate belongs to this species by comparing it 
+        against the species' representative.
+        """
+        # We ignore the 'generation' param here because strict NEAT compares against 
+        # a fixed representative for the specific generation cycle.
+        
+        if self.representative is None:
+            # Fallback for safety, though representative should always exist
+            return True
+            
+        dist = self.get_compatibility_distance(self.representative.genome, candidate.genome)
+        return dist < self.compatibility_threshold
 
     def add_members(self, members: List[Phenotype], generation: Optional[int]) -> None:
+        """
+        Adds new members to the species storage for the specific generation.
+        IMPORTANT: Does NOT update the representative. That happens only once per generation via elect_new_representative.
+        """
         gen_idx = generation - self.generation_offset if generation is not None else -1
         
         # Handle case where we need to extend the generations list
@@ -213,6 +253,51 @@ class Species:
 
         for member in members:
             target_list.append({"member": member, "fitness": member.genome.fitness})
+
+        # NOTE: No self.representative update here!
+
+    def member_count(self, generation: Optional[int]) -> int:
+        """Safe member count that returns 0 if generation doesn't exist yet."""
+        if generation is None:
+            return len(self.generations[-1]) if self.generations else 0
+            
+        gen_idx = generation - self.generation_offset
+        if 0 <= gen_idx < len(self.generations):
+            return len(self.generations[gen_idx])
+        return 0
+
+    def cumulative_fitness(self, generation: Optional[int]) -> float:
+        """Safe fitness sum."""
+        if generation is None:
+            target_list = self.generations[-1] if self.generations else []
+        else:
+            gen_idx = generation - self.generation_offset
+            if 0 <= gen_idx < len(self.generations):
+                target_list = self.generations[gen_idx]
+            else:
+                target_list = []
+        return sum(float(member["fitness"]) for member in target_list)
+
+    def get_all_members_from_generation(self, generation: Optional[int]) -> List[Dict[str, Union[Phenotype, float]]]:
+        """Safe member retrieval."""
+        if generation is None:
+            return self.generations[-1] if self.generations else []
+
+        gen_idx = generation - self.generation_offset
+        if 0 <= gen_idx < len(self.generations):
+            return self.generations[gen_idx]
+        return []
+
+    def elect_new_representative(self) -> None:
+        """Picks a random survivor to represent the species for the NEXT generation."""
+        import random
+        if self.generations and self.generations[-1]:
+            new_rep = random.choice(self.generations[-1])
+            self.representative = new_rep['member']
+
+        # Pick a random survivor from the current generation to represent the species next time
+        new_rep_dict = random.choice(self.generations[-1])
+        self.representative = new_rep_dict['member']
     
     def get_top_members(self, generation: Optional[int] = None) -> List[Dict[str, Phenotype | float]]:
         """
@@ -273,23 +358,8 @@ class Species:
         
         return total_diff
 
-    def cumulative_fitness(self, generation: Optional[int]) -> float:
-        generation = generation-self.generation_offset if generation is not None else -1
-        return sum(float(member["fitness"]) for member in self.generations[generation])
-
-    def member_count(self, generation: Optional[int]) -> int:
-        generation = generation-self.generation_offset if generation is not None else -1
-        return len(self.generations[generation])
-    
     def first_generation_index(self) -> int:
         return self.generation_offset
 
     def last_generation_index(self) -> int:
         return self.generation_offset + len(self.generations) - 1
-
-    def get_all_members_from_generation(self, generation: Optional[int]) -> List[Dict[str, Union[Phenotype, float]]]:
-        generation = generation-self.generation_offset if generation is not None else -1
-        if 0 <= generation < len(self.generations):
-            return self.generations[generation]
-        else:
-            return []
