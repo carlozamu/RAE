@@ -139,12 +139,25 @@ class EvolutionManager:
         total_counts = sum(species_counts.values())
         for species, count in species_counts.items():
             if total_counts > 0:
-                normalized_species_counts[species] = round((count / total_counts) * total_individuals)
+                normalized_species_counts[species] = round((count / total_counts) * 30)
             else:
                 normalized_species_counts[species] = 0
         md_logger.log_header(f"Species Offspring Allocation for Generation {self.current_generation_index + 1}")
         for species, count in normalized_species_counts.items():
             md_logger.log_event(f"Species {species.id}: Allocated Offspring = {count} with nonormalized count {species_counts[species]:.4f}")
+
+        # compute total allocated
+        total_allocated = sum(normalized_species_counts.values())
+        if total_allocated < 30:
+            # Distribute remaining slots randomly
+            species_list = list(normalized_species_counts.keys())
+            while total_allocated < 30:
+                chosen_species = random.choice(species_list)
+                normalized_species_counts[chosen_species] += 1
+                total_allocated += 1
+        # recompute total allocated
+        total_allocated = sum(normalized_species_counts.values())
+        md_logger.log_event(f"Total Allocated Offspring after adjustment: {total_allocated}")
     
         return normalized_species_counts
         
