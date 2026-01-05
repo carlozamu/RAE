@@ -106,7 +106,7 @@ class Species:
             current_members = self.generations[species_age]
             if current_members:
                 total_complexity = sum(
-                    len(m["member"].genome.nodes) + len(m["member"].genome.connections)
+                    len(m["member"].genome.nodes) + len(list(e for e in m["member"].genome.connections.keys() if m["member"].genome.connections[e].enabled))
                     for m in current_members
                 )
                 avg_complexity = total_complexity / max(1, len(current_members))
@@ -162,7 +162,6 @@ class Species:
             if norm1 == 0 or norm2 == 0:
                 dist = 0.5 # Neutral penalty if a vector is null/zero
             else:
-                # Clamp similarity to [-1, 1] to avoid floating point rounding errors causing NaNs
                 similarity = np.dot(v1, v2) / (norm1 * norm2)
                 dist = (1.0 - max(-1.0, min(1.0, similarity))) / 2.0
             
@@ -266,29 +265,13 @@ class Species:
         return disjoint_genes
     
     def _count_different_edges(self, ind1: AgentGenome, ind2: AgentGenome) -> int:
-        try:
-            # Safety Check: Ensure inputs are valid Genomes
-            if not hasattr(ind1, 'connections') or not hasattr(ind2, 'connections'):
-                print(f"⚠️ Error: Invalid inputs to _count_different_edges. types: {type(ind1)}, {type(ind2)}")
-                return 0
-
-            ind1_edges = set([edge for edge in ind1.connections.keys() if ind1.connections[edge].enabled])
-            ind2_edges = set([edge for edge in ind2.connections.keys() if ind2.connections[edge].enabled])
-            
-            # Symmetric Difference: (A - B) U (B - A)
-            # Find edges that are unique to either ind1 or ind2
-            unique_to_1 = ind1_edges.difference(ind2_edges)
-            unique_to_2 = ind2_edges.difference(ind1_edges)
-            
-            total_diff = len(unique_to_1) + len(unique_to_2)
-            
-            return total_diff
-
-        except Exception as e:
-            print(f"❌ Error in _count_different_edges: {e}")
-            import traceback
-            traceback.print_exc()
-            return 0
+        ind1_edges = set([edge for edge in ind1.connections.keys() if ind1.connections[edge].enabled])
+        ind2_edges = set([edge for edge in ind2.connections.keys() if ind2.connections[edge].enabled])
+        unique_to_1 = ind1_edges.difference(ind2_edges)
+        unique_to_2 = ind2_edges.difference(ind1_edges)
+        total_diff = len(unique_to_1) + len(unique_to_2)
+        
+        return total_diff
 
     def cumulative_fitness(self, generation: Optional[int]) -> float:
         generation = generation-self.generation_offset if generation is not None else -1

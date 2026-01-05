@@ -219,7 +219,7 @@ class EvolutionManager:
             print(f"      Creating {new_species_target_count} offspring...")
             pbar.set_description(f"Breeding Species {species.id}")
             
-            offsprings = await self.create_offsprings(species, new_species_target_count, pbar=pbar)
+            offsprings = await self.create_offsprings(species, new_species_target_count, problem_pool=problem_pool, pbar=pbar)
             
             if not offsprings:
                 print(f"      ⚠️ Warning: No offspring produced for species {species.id}. Skipping.")
@@ -324,7 +324,7 @@ class EvolutionManager:
 
 
 
-    async def create_offsprings(self, species, num_offsprings: int, pbar: tqdm=None)-> List[Phenotype]:
+    async def create_offsprings(self, species, num_offsprings: int,  problem_pool:List[Dict[str, str]], pbar: tqdm=None)-> List[Phenotype]:
         """
         Creates num_offsprings offspring from a given species.
         """
@@ -344,6 +344,7 @@ class EvolutionManager:
                 #mutate offspring
                 mutated_child: AgentGenome = await self.mutator.mutate(genome=child, runtime_config=child_mutation_config)
                 child_phenotype = Phenotype(genome=mutated_child, llm_client=self.llm_client)
+                await self.fitness_evaluator._update_fitness(problems_pool=problem_pool, phenotype=child_phenotype)
                 new_species = True
                 next_generation = self.current_generation_index + 1
                 current_species = tuple(self.species)
