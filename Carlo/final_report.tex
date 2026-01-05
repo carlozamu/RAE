@@ -1,0 +1,185 @@
+\documentclass[journal]{IEEEtran}
+
+% *** GRAPHICS RELATED PACKAGES ***
+\ifCLASSINFOpdf
+  \usepackage{graphicx}
+  \usepackage{subcaption}
+  \usepackage{latexsym}
+\else
+\fi
+
+% *** MATH PACKAGES ***
+\usepackage{amsmath}
+
+% *** ALIGNMENT PACKAGES ***
+\usepackage{array}
+\usepackage{float}
+
+% *** URL PACKAGES ***
+\usepackage{url}
+
+% Correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+\begin{document}
+%
+% paper title
+\title{ERA: Evolving Reasoning Agents}
+
+% author names and affiliations
+\author{Filippo~Adami,
+        Alessandro~De~Vidi,
+        Edoardo~Di~Tommaso,
+        and~Carlo~Zamuner% <-this % stops a space
+\thanks{The authors are with the University of Trento, Trento, Italy.}%
+\thanks{Manuscript received January 4, 2026.}}
+
+% The paper headers
+\markboth{IEEE Transactions on Evolutionary Computation,~Vol.~30, No.~1, January~2026}%
+{Adami \MakeLowercase{\textit{et al.}}: ERA: Evolving Reasoning Agents}
+
+% make the title area
+\maketitle
+
+\begin{abstract}
+Large Language Models (LLMs) have demonstrated remarkable capabilities in natural language processing, yet constructing effective reasoning chains (Chain-of-Thought) often requires manual, trial-and-error prompt engineering. Our work introduces Evolving Reasoning Agents (ERA), a novel framework that applies neuroevolutionary principles to automate the discovery of cognitive architectures. By treating prompts and reasoning steps as genes within a topological genome, ERA evolves agents capable of complex multi-step reasoning without human intervention. We describe the separation of Genotype and Phenotype, the mutation operators adapted for semantic space, and the fitness evaluation mechanisms. Experimental results over 128 generations demonstrate that ERA can autonomously navigate the search space of reasoning patterns, evolving from simple zero-shot prompts to complex, specialized reasoning topologies.
+\end{abstract}
+
+% Note that keywords are not normally used for peerreview papers.
+\begin{IEEEkeywords}
+Evolutionary Algorithms, Large Language Models, Neuroevolution, Prompt Engineering, Cognitive Architectures.
+\end{IEEEkeywords}
+
+\IEEEpeerreviewmaketitle
+
+\section{Introduction}
+\IEEEPARstart{T}{he} advent of Large Language Models (LLMs) has shifted the paradigm of Artificial Intelligence from model training to prompt engineering and context management. While standard prompting yields impressive results, complex tasks often require "Chain-of-Thought" (CoT) reasoning \cite{wei2022chain}, where the model breaks down problems into intermediate steps. However, designing these chains is a fragile, manual process, often specific to a single model or domain.
+
+We propose a shift from manually engineering static prompts to evolving dynamic reasoning architectures. Drawing inspiration from biological evolution, we introduce the Evolving Reasoning Agents (ERA) project. The acronym ERA reflects our ambition to define a new era in automated reasoning, in which agents adapt their internal cognitive topology to the task at hand.
+
+In this work, we translate concepts from Neuroevolution of Augmenting Topologies (NEAT) \cite{stanley2002neat} into the semantic domain of LLMs. Instead of neurons and weights, our agents evolve textual instructions and logical connections.
+
+\section{Methodology: The ERA Architecture}
+
+The ERA framework is built upon a strict separation of the evolutionary blueprint (Genotype-Gene) and the executable instance (Phenotype-Trait). This separation allows for efficient mutation and crossover operations while keeping evolution logic separate from LLM's runtime execution.
+
+\subsection{Genotype: The Agent Genome}
+\label{sec:genotype}
+The core of ERA is the \textit{AgentGenome}, a directed graph $G = (V, E)$ adapted from NEAT for semantic operations. \textbf{PromptNodes} replace activation functions with natural language \textit{Instructions}, \textit{Embeddings} for genetic distance, and \textit{Innovation Numbers}. \textbf{Connections} represent unweighted logical flow ($u \rightarrow v$) modulated by LLM attention, each tracking an \textit{Innovation Hash} and \textit{Enabled Bit}.
+
+To support CoT, the genome is structured as a Directed Acyclic Graph (DAG) anchored by Start/End nodes. We enforce acyclicity to prevent context loops and employ a modified \textbf{Kahn's Algorithm} to compile a linearized execution plan $P$. This ensures parent outputs are concatenated into the child's context window only after all dependencies are resolved.
+
+\subsection{Phenotype}
+\label{sec:phenotype}
+
+The Phenotype is responsible for executing a genome. While the genome defines \textit{what} the agent should do, the Phenotype handles \textit{how} it runs: invoking the LLM for each node and passing outputs along the chain.
+
+\subsubsection{Execution Flow}
+Given a genome with nodes $[n_1, n_2, \ldots, n_k]$ connected in a specific topology, the Phenotype performs the following operations:
+
+\begin{enumerate}
+    \item \textbf{Trait Encapsulation:} It wraps each genomic node into a \texttt{Trait}. A Trait combines the static instruction from the genome with the dynamic context of the current problem instance.
+    \item \textbf{Sequential Execution:} The Phenotype resolves the topological sort of the genome and executes traits sequentially. The output of a predecessor node ($output_i$) serves as the input context for the successor node ($input_{i+1}$).
+    \item \textbf{Result Aggregation:} Upon completion, the Phenotype collects all intermediate outputs and the final conclusion, returning a structured trace of the reasoning process.
+\end{enumerate}
+
+\subsubsection{LLM Integration}
+To maintain computational efficiency, the LLM is not instantiated per-phenotype. Instead, a single LLM instance is passed by reference to all phenotypes. Using an \texttt{LLMClient} interface, we support both remote inference servers and local HuggingFace models (e.g., Gemma 3 1B) for optimized latency.
+
+\subsubsection{Lifecycle and Logging}
+To prevent premature extinction of novel structures, phenotypes track their \textbf{Age}, allowing for a protected incubation period. Strict logging of all LLM interactions (prompt, response, latency) enables post-hoc analysis of the evolved reasoning chains.
+
+\subsection{Mutation or Operators}
+\label{sec:mutation}
+
+\subsubsection{Architectural Mutations}
+These operators dictate the structural complexity of the agent. Derived from NEAT, they include \textbf{Add-Connection}, \textbf{Remove-Connection}, \textbf{Add-Node}, and \textbf{Remove-Node}, all constrained to preserve the DAG property (e.g., cycle detection via reverse BFS before adding edges).
+
+\subsubsection{Semantic Mutations}
+Unlike biological networks where "content" is a numerical weight, ERA nodes contain semantic instructions. We introduce LLM-driven operators:
+\begin{itemize}
+    \item \textbf{Expand/Simplify:} Rewrites instructions to add detail or abstract implementation nuances.
+    \item \textbf{Reformulate:} Paraphrases instructions to explore the local embedding space.
+\end{itemize}
+
+\subsubsection{The Novel Split Mutation}
+A critical innovation for CoT is the \textbf{Gene Split} mutation. Given a node $N$, the LLM decomposes its instruction $I$ into two sequential steps $I_a$ and $I_b$, replacing $N$ with $N_a \rightarrow N_b$. We provide a theoretical proof (omitted for brevity) that this transformation preserves acyclicity in any valid DAG.
+
+\subsection{Crossover and Speciation}
+Crossover aligns genes via innovation numbers, inheriting matching genes randomly and disjoint/excess genes from the fitter parent. Implicit speciation clusters populations based on a distance metric $\delta$ weighted by structural differences ($E, D, E_{diff}$) and semantic embedding distance ($\Delta \overline{W}$).
+
+\subsection{Fitness Evaluation}
+We define a multi-objective fitness function $F$:
+\begin{equation}
+    F = w_{acc} \cdot S_{acc} + w_{rat} \cdot S_{rat} - w_{tok} \cdot C_{tok} - w_{cpx} \cdot C_{cyc}
+\end{equation}
+where $S_{acc}$ is semantic accuracy (cosine similarity), $S_{rat}$ assesses rationale quality, and $C_{tok}, C_{cyc}$ promote parsimony and structural simplicity.
+
+\section{Experiments}
+\label{sec:experiments}
+
+To validate the ERA framework, we designed an experimental environment observing the emergence of reasoning patterns from a minimal baseline.
+
+\subsection{Experimental Setup}
+
+\subsubsection{Dataset: CLUTRR}
+We selected \textbf{CLUTRR} (Compositional Language Understanding and Text-based Relational Reasoning). This generative task requires deducing family relationships (e.g., "Alice is Bob's mother...") via multi-hop logical traversal. It is ideal for ERA as it requires strict logical steps rather than world knowledge, and provides a constrained output space for robust evaluation.
+
+\subsubsection{Model & Hardware}
+We employed \textbf{Gemma 3 1B} for both phenotype execution and the breeder mutation engine. This 1B parameter model provides a challenging baseline for reasoning tasks, ensuring that performance gains are attributable to evolved topology rather than model scale. Experiments ran on a local workstation with an AMD Radeon RX 6900 XT (16 GB VRAM).
+
+\subsubsection{Initialization}
+We adopted a "Clean Slate" strategy: Generation 0 consisted of 30 identical individuals with a minimal, single-node topology. This ensures all observed complexity is autonomously discovered by evolution.
+
+\subsection{Results}
+
+The evolutionary run extended for \textbf{128 generations}. Despite the high computational cost (approx. 15 generations/hour) and limited batch size ($N=10$) causing fitness variance, the system demonstrated a clear trajectory of improvement.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{\linewidth}
+        \includegraphics[width=\linewidth]{plots/gen_1_scatter.png}
+        \caption{Generation 1: Minimal complexity baseline.}
+        \label{fig:gen1}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{\linewidth}
+        \includegraphics[width=\linewidth]{plots/gen_66_scatter.png}
+        \caption{Generation 66: Emergence of Pareto front.}
+        \label{fig:gen66}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{\linewidth}
+        \includegraphics[width=\linewidth]{plots/gen_128_scatter.png}
+        \caption{Generation 128: Mature population structure.}
+        \label{fig:gen128}
+    \end{subfigure}
+    \caption{Evolution of population distribution (Fitness vs. Complexity) over time. Blue points represent individual agents.}
+    \label{fig:evolution_scatter}
+\end{figure}
+
+As shown in Fig. \ref{fig:evolution_scatter}, the population initially clustered around the baseline (Gen 1). By Generation 66, a "Pareto front" emerged, balancing reasoning depth with fitness. By Generation 128, the population exhibited stabilized structural motifs. Qualitative analysis revealed that \textit{Gene Split} mutations successfully decomposed complex prompts into specialized functional units (e.g., evidence extraction $\rightarrow$ deduction), effectively "discovering" CoT prompting strategies autonomously.
+
+\section{Conclusion}
+In this work, we introduced ERA, a framework bridging neuroevolutionary principles with LLM orchestration. Our experiments over 128 generations confirm that cognitive architectures can be evolved rather than engineered. While hardware constraints limited the scale of evaluation, the emergence of specialized reasoning topologies from a clean slate validates the core hypothesis. Future work will focus on improving evaluation efficiency to scale to larger problem pools and more complex domains.
+
+\appendices
+
+\section*{Acknowledgment}
+The authors thank Giovanni Iacca and Erik Nielsen for their theoretical contributions.
+
+\ifCLASSOPTIONcaptionsoff
+  \newpage
+\fi
+
+\begin{thebibliography}{1}
+
+\bibitem{wei2022chain}
+J.~Wei, et al., ``Chain-of-thought prompting elicits reasoning in large language models,'' \emph{NeurIPS}, vol. 35, pp. 24824--24837, 2022.
+
+\bibitem{stanley2002neat}
+K.~O. Stanley and R.~Miikkulainen, ``Evolving neural networks through augmenting topologies,'' \emph{Evolutionary Computation}, vol. 10, no. 2, pp. 99--127, 2002.
+
+\end{thebibliography}
+
+\end{document}
