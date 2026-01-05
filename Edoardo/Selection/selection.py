@@ -55,8 +55,8 @@ class ElitismSelection(SelectionStrategy):
         """
         self._validate_population(population)
         
-        # Sort by fitness (ascending)
-        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=False)
+        # Sort by fitness (descending: higher is better)
+        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=True)
         
         # Always include top elite_size individuals
         selected = sorted_pop[:min(self.elite_size, num_parents)]
@@ -96,8 +96,8 @@ class RankBasedSelection(SelectionStrategy):
         """
         self._validate_population(population)
         
-        # Sort by fitness (ascending)
-        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=False)
+        # Sort by fitness (descending: higher is better)
+        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=True)
         n = len(sorted_pop)
         
         # Assign ranks (1 = best, n = worst)
@@ -151,8 +151,8 @@ class TournamentSelection(SelectionStrategy):
         for _ in range(num_parents):
             # Randomly select tournament_size individuals
             tournament = random.sample(population, min(self.tournament_size, len(population)))
-            # Select the best from the tournament
-            winner = min(tournament, key=lambda x: x['fitness'])
+            # Select the best from the tournament (Max fitness)
+            winner = max(tournament, key=lambda x: x['fitness'])
             selected.append(winner)
         
         return selected

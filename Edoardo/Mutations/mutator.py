@@ -633,7 +633,8 @@ Format: Name: <name> | Instr: <instruction>
             embedding = self.llm.get_embedding(instruction)
             return PromptNode(name, instruction, embedding=embedding, innovation_number=_get_next_innovation_number())
         except:
-            return PromptNode("Bridge_Step", "Process the data from the previous step and prepare it for the next.", embedding=self.llm.get_embedding(instruction))
+            default_instruction = "Process the data from the previous step and prepare it for the next."
+            return PromptNode("Bridge_Step", default_instruction, embedding=self.llm.get_embedding(default_instruction))
 
     async def _split_instructions(self, original_instruction: str, original_name: str) -> tuple[str, str, str, str]:
         """

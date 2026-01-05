@@ -37,7 +37,7 @@ from Species.species import Species
 USE_REASONING = False       # Toggle to enable/disable reasoning evaluation
 MAX_GENERATIONS = 500
 MAX_TIME_SECONDS = 3600 * 10 # 10 Hours
-TARGET_LOSS = 0.20          # Stop if loss drops below this
+TARGET_FITNESS = 3.8          # Stop if fitness exceeds this
 
 def force_cleanup():
     """
@@ -129,9 +129,9 @@ async def run_evolution():
         # B. Statistics Calculation
         current_gen = evolution_manager.current_generation_index
         
-        best_loss = inf
-        worse_loss = -inf
-        total_loss = 0.0
+        best_fitness = -inf
+        worse_fitness = inf
+        total_fitness = 0.0
         total_individuals = 0
         
         for item in new_gen:
@@ -140,19 +140,19 @@ async def run_evolution():
             
             fit = individual.genome.fitness
             total_individuals += 1
-            total_loss += fit
+            total_fitness += fit
 
-            if fit < best_loss: best_loss = fit
-            if fit > worse_loss: worse_loss = fit
+            if fit > best_fitness: best_fitness = fit
+            if fit < worse_fitness: worse_fitness = fit
 
-        average_loss = total_loss / total_individuals if total_individuals > 0 else 0.0
+        average_fitness = total_fitness / total_individuals if total_individuals > 0 else 0.0
         
         # C. Logging to Console
-        print(f"Gen {current_gen} | Avg Loss: {average_loss:.4f} | Best: {best_loss:.4f} | Worst: {worse_loss:.4f}")
+        print(f"Gen {current_gen} | Avg Fit: {average_fitness:.4f} | Best: {best_fitness:.4f} | Worst: {worse_fitness:.4f}")
 
         # D. Stop Criteria Checks
-        if best_loss <= TARGET_LOSS:
-            print(f"\n🏆 SUCCESS: Target Loss ({TARGET_LOSS}) reached! Final Best: {best_loss:.4f}")
+        if best_fitness >= TARGET_FITNESS:
+            print(f"\n🏆 SUCCESS: Target Fitness ({TARGET_FITNESS}) reached! Final Best: {best_fitness:.4f}")
             break
             
         if (time.time() - start_time) > MAX_TIME_SECONDS:

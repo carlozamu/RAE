@@ -52,13 +52,13 @@ class Fitness:
             custom_accuracy=custom_accuracy
         )
         
-        return result["loss"]
+        return result["fitness"]
 
     async def _update_fitness(self, problems_pool: list[dict], phenotype: Phenotype):
         fitness = 0.0
         for problem in problems_pool:
             fitness += await self.evaluate(phenotype, problem)
-        phenotype.genome.fitness = fitness / len(problems_pool) if problems_pool else inf
+        phenotype.genome.fitness = fitness / len(problems_pool) if problems_pool else 0.0
         #print(f"Updated fitness: {self.genome.fitness}") 
 
     async def evaluate_population(self, population: list[Phenotype], problem_pool: list[dict]):
