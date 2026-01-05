@@ -97,7 +97,7 @@ class Species:
         member_count = self.member_count(generation)
         
         if average_fitness > 0:
-            adjusted_count = (1.0 / cumulative_fit) / (1.0 / average_fitness)
+            adjusted_count = cumulative_fit / average_fitness
         else:
             adjusted_count = float(member_count)
             
@@ -117,7 +117,7 @@ class Species:
 
         # Protection mechanism for young and complex species
         # Base protection of 5 generations, plus complexity factor
-        protection_limit = Species.protection_base + (avg_complexity * 0.5)
+        protection_limit = Species.protection_base + round(avg_complexity)
         
         if species_age < protection_limit:
             # Boost adjusted count to prevent premature extinction
@@ -128,7 +128,7 @@ class Species:
         
         return adjusted_count
         
-    def _compute_average_weight_difference(self, ind1: AgentGenome, ind2: AgentGenome) -> float:
+    def _compute_average_embedding_difference(self, ind1: AgentGenome, ind2: AgentGenome) -> float:
         """
         Calculates the average semantic distance (Cosine Distance) between matching nodes.
         Used for the 'Weight Difference' component of the NEAT compatibility formula.
@@ -185,7 +185,7 @@ class Species:
         excess_genes = self._count_excess_genes(population_member.genome, candidate_genome)
         disjoint_genes = self._count_disjoint_genes(population_member.genome, candidate_genome)
         max_number_of_genes = max(len(population_member.genome.nodes), len(candidate_genome.nodes), 1)
-        average_weight_diff = self._compute_average_weight_difference(population_member.genome, candidate.genome)
+        average_weight_diff = self._compute_average_embedding_difference(population_member.genome, candidate.genome)
         population_member_active_edges = [edge for edge in population_member.genome.connections.keys() if population_member.genome.connections[edge].enabled]
         candidate_active_edges = [edge for edge in candidate_genome.connections.keys() if candidate_genome.connections[edge].enabled]
         max_number_of_edges = max(len(population_member_active_edges), len(candidate_active_edges), 1)

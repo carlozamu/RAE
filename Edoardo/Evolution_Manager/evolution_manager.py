@@ -168,43 +168,21 @@ class EvolutionManager:
         Includes robust error handling and debug logging.
         """
         print(f"\n--- 🧬 Evolution Manager: Starting Generation {self.current_generation_index + 1} ---")
-        
-        # 1. Update Hall of Fame
-        # ---------------------------------------------------------
-        print("   🏆 Updating Hall of Fame...")
         for species in self.species:
             if species.last_generation_index() == self.current_generation_index:
                 species.update_hall_of_fame()
-
-        # 2. Generate Problem Pool
-        # ---------------------------------------------------------
-        print("   🧪 Generating new Problem Pool...")
-        
-        # We use the same pool for all species to ensure fair comparison
         problem_pool: List[Dict[str, str]] = self.get_problem_pool()
-        #print(f"      -> Pool size: {len(problem_pool)}")
-        # 3. Calculate Fitness Stats & Allocate Slots (Speciation)
-        # ---------------------------------------------------------
         total_fitness = 0.0
         total_individuals = 0
-        print(f"Starting from index {self.current_generation_index}, calculating total fitness across {len(self.species)} species")
-        
         for species in self.species:
             if species.last_generation_index() == self.current_generation_index:
                 fitness = species.cumulative_fitness(self.current_generation_index)
                 if not math.isinf(fitness):
                     total_fitness += fitness
                     total_individuals += species.member_count(self.current_generation_index)
-        
         average_fitness = (total_fitness / total_individuals) if total_individuals > 0 else 0
         print(f"      -> Global Avg Fitness: {average_fitness:.4f}| Total Fitness: {total_fitness} | Total Pop: {total_individuals}")
-
-        # This determines how many offsprings each species is allowed to have
         species_counts = self._compute_normalized_species_counts(average_fitness, total_individuals)
-
-
-        # 4. Process Each Species
-        # ---------------------------------------------------------
         active_species_count = 0
         pbar = tqdm(total=30, desc=f"Gen {self.current_generation_index+1} - Starting Offsprings Creation", unit="child")
         species_tuple = tuple(self.species)  # To avoid modification during iteration
@@ -212,76 +190,36 @@ class EvolutionManager:
             # Skip species that died out previously
             if species.last_generation_index() != self.current_generation_index:
                 continue
-            
-            # Retrieve allocated slot count
             new_species_target_count = species_counts.get(species, 1)
-            
             # If the species is extinct due to poor performance
             if new_species_target_count <= 0:
                 print(f"   💀 Species {species.id} has gone extinct (0 slots allocated).")
                 continue
-
-            #print(f"\n   🦕 Processing Species {species.id} (Target: {new_species_target_count})...")
             active_species_count += 1
-
-            
-
-            # A. Create Offspring
-            # ---------------------------------------
-            # We usually generate exactly the target count, or slightly more if we want selection pressure
             print(f"      Creating {new_species_target_count} offspring...")
-            pbar.set_description(f"Breeding Species {species.id}")
-            
             offsprings = await self.create_offsprings(species, new_species_target_count, problem_pool=problem_pool, pbar=pbar)
             
             if not offsprings:
                 print(f"      ⚠️ Warning: No offspring produced for species {species.id}. Skipping.")
                 continue
-
-            # B. Gather Candidates (Parents + Children)
-            # ---------------------------------------
             current_members = species.get_all_members_from_generation(self.current_generation_index)
             current_phenotypes = [item['member'] for item in current_members]
             
             all_candidates = current_phenotypes + offsprings
-            print(f"      Candidates: {len(current_phenotypes)} Parents + {len(offsprings)} Offspring = {len(all_candidates)} Total")
-
-            # C. Evaluate EVERYONE on the NEW Problem Pool
-            # ---------------------------------------
-            # This is crucial: Parents might have high fitness from an "easy" previous batch.
-            # Re-evaluating them on the new batch ensures fair competition with children.
-            print("      Evaluating all candidates on new problem pool...")
             await self.fitness_evaluator.evaluate_population(population=all_candidates, problem_pool=problem_pool)
-
-            # D. Prepare Data for Selection Strategy
-            # ---------------------------------------
             offspring_dicts = [{"member": child, "fitness": child.genome.fitness} for child in offsprings]
-            
-            # Parent dicts need updated fitness from the re-evaluation above
             current_pop_dicts = [{"member": p, "fitness": p.genome.fitness} for p in current_phenotypes]
-
-            # E. Select Survivors
-            # ---------------------------------------
-            # For Comma Strategy (Children replace parents): target_size is just the allocated count
-            # For Plus Strategy (Best of both): target_size is also the allocated count
-            print("      Selecting survivors...")
             selected_individuals_dicts = self.survivor_strategy.select_survivors(
                 current_population=current_pop_dicts,
                 offspring_population=offspring_dicts,
                 population_size=len(offsprings)
             )
-
             selected_individuals = [item['member'] for item in selected_individuals_dicts]
             print(f"      ✅ Selected {len(selected_individuals)} survivors for next gen.")
-
-            # F. Add to Next Generation Storage
-            # ---------------------------------------
             species.add_members(selected_individuals, generation=self.current_generation_index + 1)
 
         pbar.close()
-
-        # 5. Finalize Generation
-        # ---------------------------------------------------------
+        
         if active_species_count == 0:
             print("   ⚠️ WARNING: All species have gone extinct!")
             # Optional: Re-seed population here?
