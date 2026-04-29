@@ -2,7 +2,6 @@ import re
 import random
 from typing import List, Dict, Tuple, Any, Optional
 from datasets import load_dataset
-# import torch # Not strictly needed here unless we use tokenizer stuff, but we format strings
 
 class CLUTTRManager:
     RELATIONS = [
@@ -37,7 +36,7 @@ class CLUTTRManager:
             print(f"Error loading CLUTTR dataset: {e}")
             self.dataset = None
 
-    def get_batch(self, split: str = "train", size: int = 10, random_seed: int = None) -> List[Dict[str, str]]:
+    def get_batch(self, split: str = "train", size: int = 20, random_seed: int = None) -> List[Dict[str, str]]:
         """
         Returns a batch of formatted problems.
         Each problem is a dict: {'question': str, 'answer': str, 'metadata': dict}

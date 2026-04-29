@@ -12,7 +12,7 @@ from collections import defaultdict
 # Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from Selection.selection import (
+from Selection.old_selection import (
     ElitismSelection,
     RankBasedSelection,
     TournamentSelection,

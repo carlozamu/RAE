@@ -1,4 +1,4 @@
-from Selection.selection import (
+from Selection.old_selection import (
     SelectionStrategy,
     ElitismSelection,
     RankBasedSelection,

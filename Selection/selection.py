@@ -1,204 +1,86 @@
 """
-Selection strategies for evolutionary algorithms.
-Each strategy selects parents from a population based on different criteria.
+Selection logic for the Reasoning Agent Engine (RAE).
+Handles Parent Selection using a Rank-Based approach to mitigate non-linear LLM fitness scores.
 """
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
-import random
+from typing import List, Protocol, TypeVar
 import numpy as np
 
+# 1. Type Safety Protocol
+class Evolvable(Protocol):
+    """Protocol defining the minimum requirements for a genome in the selection process."""
+    fitness: float
 
+T = TypeVar('T', bound=Evolvable)
+
+# 2. Base Architecture
 class SelectionStrategy(ABC):
-    """
-    Base class for all selection strategies.
-    Works with individuals stored as dictionaries with 'member' and 'fitness' keys.
-    """
+    """Base class establishing the contract for parent selection."""
     
     @abstractmethod
-    def select(self, population: List[Dict[str, Any]], num_parents: int) -> List[Dict[str, Any]]:
-        """
-        Select parents from the population.
-        
-        Args:
-            population: List of individuals, each as dict with 'member' and 'fitness' keys
-            num_parents: Number of parents to select
-            
-        Returns:
-            List of selected parent dictionaries
-        """
+    def select(self, population: List[T], num_parents: int) -> List[T]:
+        """Selects a specified number of parents from the population."""
         pass
     
-    def _validate_population(self, population: List[Dict[str, Any]]) -> None:
-        """Validate that population has required structure."""
+    def _validate_population(self, population: List[T]) -> None:
+        """Ensures the population is valid and compatible."""
         if not population:
-            raise ValueError("Population cannot be empty")
-        if not all('fitness' in ind and 'member' in ind for ind in population):
-            raise ValueError("Each individual must have 'member' and 'fitness' keys")
+            raise ValueError("Population cannot be empty.")
+        if not all(hasattr(ind, 'fitness') for ind in population):
+            raise ValueError("Each individual in the population must have a 'fitness' attribute.")
 
-
-class ElitismSelection(SelectionStrategy):
-    """
-    Elitism selection: Always selects the top N individuals by fitness.
-    Preserves the best individuals across generations.
-    """
-    
-    def __init__(self, elite_size: int = 1):
-        """
-        Args:
-            elite_size: Number of top individuals to always select (default: 1)
-        """
-        self.elite_size = elite_size
-    
-    def select(self, population: List[Dict[str, Any]], num_parents: int) -> List[Dict[str, Any]]:
-        """
-        Selects top individuals first, then fills remaining slots randomly from top performers.
-        """
-        self._validate_population(population)
-        
-        # Sort by fitness (ascending)
-        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=False)
-        
-        # Always include top elite_size individuals
-        selected = sorted_pop[:min(self.elite_size, num_parents)]
-        
-        # Fill remaining slots from top performers (top 50% of population)
-        remaining = num_parents - len(selected)
-        if remaining > 0:
-            top_half = sorted_pop[:max(1, len(sorted_pop) // 2)]
-            if len(top_half) > remaining:
-                selected.extend(random.sample(top_half, remaining))
-            else:
-                selected.extend(top_half)
-                # If still need more, sample with replacement from top half
-                while len(selected) < num_parents:
-                    selected.append(random.choice(top_half))
-        
-        return selected[:num_parents]
-
-
+# 3. The Concrete Implementation
 class RankBasedSelection(SelectionStrategy):
     """
-    Rank-based selection: Assigns selection probability based on rank rather than raw fitness.
-    More robust to fitness scaling issues and maintains selection pressure.
+    Rank-based parent selection.
+    Sorts the population by fitness (highest to lowest). Assigns selection 
+    probabilities linearly based on rank rather than raw score.
     """
     
-    def __init__(self, selection_pressure: float = 2.0):
+    def __init__(self, selection_pressure: float = 1.5):
         """
         Args:
-            selection_pressure: Controls how much better ranks are favored (default: 2.0)
-                               Higher values = stronger bias toward top ranks
+            selection_pressure: Controls the statistical bias towards top performers.
+                Range: [1.0, 2.0]. 
+                1.0 = purely random selection (no pressure).
+                2.0 = maximum deterministic bias toward Rank 1.
         """
+        if not (1.0 <= selection_pressure <= 2.0):
+            raise ValueError("Selection pressure must be between 1.0 and 2.0")
         self.selection_pressure = selection_pressure
     
-    def select(self, population: List[Dict[str, Any]], num_parents: int) -> List[Dict[str, Any]]:
-        """
-        Selects parents based on rank-based probabilities.
-        """
+    def select(self, population: List[T], num_parents: int) -> List[T]:
         self._validate_population(population)
         
-        # Sort by fitness (ascending)
-        sorted_pop = sorted(population, key=lambda x: x['fitness'], reverse=False)
+        # Sort descending: Highest fitness = index 0 (Rank 1)
+        sorted_pop = sorted(population, key=lambda x: x.fitness, reverse=True)
         n = len(sorted_pop)
         
-        # Assign ranks (1 = best, n = worst)
-        # Calculate selection probabilities using linear ranking
-        # P(rank i) = (2 - s) / n + 2 * (n - i + 1) * (s - 1) / (n * (n - 1))
-        # where s = selection_pressure, and we use (n - i + 1) to favor better ranks
-        # This ensures rank 1 (best) gets highest probability, rank n (worst) gets lowest
+        # Edge case: If population is 1, just return clones of it
+        if n == 1:
+            return [sorted_pop[0]] * num_parents
+            
+        # Calculate stochastic linear ranking probabilities
         probabilities = []
-        for i, rank in enumerate(range(1, n + 1)):
-            # Reverse rank: rank 1 (best) should get highest probability
-            # Use (n - rank + 1) so best rank gets value n, worst rank gets value 1
-            reversed_rank = n - rank + 1
-            prob = (2 - self.selection_pressure) / n + 2 * reversed_rank * (self.selection_pressure - 1) / (n * (n - 1)) if n > 1 else 1.0
+        for i in range(n):
+            rank = i + 1  # 1-indexed rank
+            reversed_rank = n - rank + 1  # Invert so Rank 1 gets the highest multiplier
+            
+            prob = (2 - self.selection_pressure) / n + \
+                   (2 * reversed_rank * (self.selection_pressure - 1)) / (n * (n - 1))
             probabilities.append(prob)
         
-        # Normalize probabilities
-        total = sum(probabilities)
-        probabilities = [p / total for p in probabilities]
+        # Convert to numpy array and normalize to resolve floating-point inaccuracies
+        probabilities = np.array(probabilities)
+        probabilities /= probabilities.sum()
         
-        # Select based on probabilities
-        selected = np.random.choice(
-            len(sorted_pop),
+        # Sample parents with replacement
+        selected_indices = np.random.choice(
+            n,
             size=num_parents,
             replace=True,
             p=probabilities
         )
         
-        return [sorted_pop[int(idx)] for idx in selected]
-
-
-class TournamentSelection(SelectionStrategy):
-    """
-    Tournament selection: Randomly selects k individuals and picks the best from each tournament.
-    Simple, effective, and maintains diversity.
-    """
+        return [sorted_pop[idx] for idx in selected_indices]
     
-    def __init__(self, tournament_size: int = 3):
-        """
-        Args:
-            tournament_size: Number of individuals competing in each tournament (default: 3)
-        """
-        self.tournament_size = tournament_size
-    
-    def select(self, population: List[Dict[str, Any]], num_parents: int) -> List[Dict[str, Any]]:
-        """
-        Selects parents through tournament competitions.
-        """
-        self._validate_population(population)
-        
-        selected = []
-        for _ in range(num_parents):
-            # Randomly select tournament_size individuals
-            tournament = random.sample(population, min(self.tournament_size, len(population)))
-            # Select the best from the tournament
-            winner = min(tournament, key=lambda x: x['fitness'])
-            selected.append(winner)
-        
-        return selected
-
-
-class FitnessProportionateSelection(SelectionStrategy):
-    """
-    Fitness-proportionate selection (Roulette Wheel): 
-    Selection probability proportional to fitness.
-    Works well when fitness values are positive and well-scaled.
-    """
-    
-    def __init__(self, use_adjusted_fitness: bool = False):
-        """
-        Args:
-            use_adjusted_fitness: If True, uses adjusted_fitness from individual (for NEAT compatibility)
-        """
-        self.use_adjusted_fitness = use_adjusted_fitness
-    
-    def select(self, population: List[Dict[str, Any]], num_parents: int) -> List[Dict[str, Any]]:
-        """
-        Selects parents with probability proportional to fitness.
-        """
-        self._validate_population(population)
-        
-        # Get fitness values
-        if self.use_adjusted_fitness:
-            fitnesses = [ind.get('adjusted_fitness', ind['fitness']) for ind in population]
-        else:
-            fitnesses = [ind['fitness'] for ind in population]
-        
-        # Calculate probabilities
-        total_fitness = sum(fitnesses)
-        if total_fitness == 0:
-            # If all fitnesses are zero, use uniform selection
-            probabilities = [1.0 / len(population)] * len(population)
-        else:
-            probabilities = [f / total_fitness for f in fitnesses]
-
-        # Select based on probabilities
-        selected = np.random.choice(
-            len(population),
-            size=num_parents,
-            replace=True,
-            p=probabilities
-        )
-        
-        return [population[int(idx)] for idx in selected]
-

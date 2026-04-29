@@ -16,11 +16,11 @@ from sentence_transformers import SentenceTransformer
 _EMBEDDER_INSTANCE = None
 
 class LLM:
-    def __init__(self, base_url="http://localhost:8000/v1"):
+    def __init__(self, model_name="google/gemma-3-1b-it", base_url="http://localhost:8000/v1"):
         self.base_url = base_url
         self.headers = {"Content-Type": "application/json"}
-        self.model_name = "google/gemma-3-1b-it" 
-        
+        self.model_name = model_name
+
         # Load Embedding Model ONCE (Global Singleton Pattern)
         global _EMBEDDER_INSTANCE
         if _EMBEDDER_INSTANCE is None:
@@ -55,7 +55,7 @@ class LLM:
             "model": self.model_name,
             "prompt": formatted_prompt, # Using raw 'prompt', not 'messages'
             "max_tokens": max_tokens,
-            "temperature": temperature, # High temp for evolutionary diversity, low tem for logical focus
+            "temperature": temperature, # High temp for evolutionary diversity, low temp for logical focus
             "stop": stop_tokens
         }
 

@@ -16,8 +16,8 @@ import numpy as np
 # Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from Selection.selection import TournamentSelection
-from Species.species import Species
+from Selection.old_selection import TournamentSelection
+from Species.old_species import Species
 from Evolution_Manager.evolution_manager import EvolutionManager
 from Generation_Manager.generation_manager import CommaPlusStrategy, GenerationManager
 

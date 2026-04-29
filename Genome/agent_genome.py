@@ -26,11 +26,9 @@ class AgentGenome:
         new_conn = Connection(in_node_innovation_number, out_node_innovation_number)
         self.connections[new_conn.innovation_number] = new_conn
 
-
     def get_execution_order(self) -> list[tuple[PromptNode, list[str]]]:
         """
         Returns a topologically sorted execution plan.
-        FIXED: Correctly handles Start==End single-node genomes.
         """
         if not self.nodes or self.start_node_innovation_number is None:
             return []

@@ -1,174 +1,162 @@
 """
-Cose da loggare:
-    generation number
-    best-worse fitness per generation
-    average fitness per species per generation
-    average number of nodes and connections per individual per generation
-    species count per generation
-    paragone con prompt engineering
-
 ERA: Evolving Reasoning Agents
 Main Execution Script
 """
 import asyncio
 import time
-import sys
 import gc
 import torch
-import traceback
+import subprocess
 from math import inf
-import subprocess # Needed to spawn the image viewer process
 
 # --- Internal Modules ---
 from Fitness.fitness import Fitness
 from Mutations.mutator import Mutator
 from Data.cluttr import CLUTTRManager
-from Data.cot import CoTManager
 from Utils.utilities import _get_next_innovation_number, log_generation_to_json, plot_complexity_vs_fitness
-from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
 from ERA.init_pop import initialize_population
-from Evolution_Manager.evolution_manager import EvolutionManager
-from Selection.selection import TournamentSelection
-from Generation_Manager.generation_manager import CommaPlusStrategy
-from Species.species import Species
+
+# --- New Architectural Modules ---
+from Selection.selection import RankBasedSelection
+from Species.species_breeder import SpeciesBreeder
+from Species.speciation_engine import SpeciationEngine
 
 # --- Configuration ---
-USE_REASONING = False       # Toggle to enable/disable reasoning evaluation
 MAX_GENERATIONS = 500
 MAX_TIME_SECONDS = 3600 * 10 # 10 Hours
-TARGET_LOSS = 0.20          # Stop if loss drops below this
+TARGET_FITNESS = 95.0        # Higher is better (Max is 100.0)
+STARTING_PROMPT = "You are an expert in reasoning. Given the input, provide the accurate response to the following problem."
+NUM_INDIVIDUALS = 30  
+MIN_NUM_SPECIES = 2
+MAX_NUM_SPECIES = 6
+DROPOFF_AGE = 8 # Generations a species can survive without improving max fitness  
+BATCH_SIZE = 20 # Number of problems each individual is evaluated on per generation
+SELECTION_PRESSURE = 1.5
+ELITISM_RATIO = 0.2
+PROPORTIONAL_STEP = 0.075 # P-Controller gain for dynamic thresholding
+
 
 def force_cleanup():
-    """
-    Forces Python and PyTorch to release all GPU memory.
-    Call this on shutdown or error.
-    """
+    """Releases GPU memory."""
     print("\n🧹 Performing Memory Cleanup...")
-    
-    # 1. Force Python Garbage Collector
     gc.collect()
-    
-    # 2. Clear PyTorch Cache (if local tensors were created)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
-    
     print("✅ GPU Memory Released.")
 
 async def run_evolution():
     print("\n--- Initializing ERA System ---")
     
-    # 1. Initialize Components
-    # Initialize LLM
-    # NOTE: Ensure your LLM class loads the Embedder on CPU to avoid VRAM conflict!
+    # 1. Initialize API and Core Tools
     llm_client = LLM() 
-    print("LLM client initialized.")
-
-    fitness_evaluator = Fitness(llm=llm_client, use_reasoning=USE_REASONING)
+    fitness_evaluator = Fitness(llm=llm_client, use_reasoning=True)
     mutator = Mutator(breeder_llm_client=llm_client)
-
-    # Dataset Selection
-    if USE_REASONING:
-        print("Reasoning Evaluation ENABLED. Using CoT-Collection.")
-        dataset_manager = CoTManager(split="train")
-    else:
-        print("Reasoning Evaluation DISABLED. Using CLUTTR Dataset.")
-        dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
-
-    # 2. Population Initialization
-    initial_problems_pool = dataset_manager.get_batch()
-    starting_prompt = "You are an expert reasoning AI. Given the input, provide a detailed and accurate response following the instructions."
+    dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
     
-    print("🌱 Seeding Population...")
-    population = await initialize_population(
-        num_individuals=30, 
-        prompt=starting_prompt, 
+    # 2. Population Initialization
+    initial_problems_pool = dataset_manager.get_batch(batch_size=BATCH_SIZE)
+    _get_next_innovation_number() # Reset global innovation tracker
+
+    print("🌱 Seeding Minimal Population...")
+    evaluated_population = await initialize_population(
+        num_individuals=NUM_INDIVIDUALS, 
+        prompt=STARTING_PROMPT, 
         problems_pool=initial_problems_pool, 
         llm_client=llm_client, 
         fitness_evaluator=fitness_evaluator
     )
     
-    # Reset/Init innovation counter
-    _get_next_innovation_number() 
-    print(f"Initialized population: {len(population)} agents. Best Gen 0 Fitness: {population[0].genome.fitness:.4f}")
+    print(f"Initialized population: {len(evaluated_population)} clones. Best Gen 0 Fitness: {evaluated_population[0].genome.fitness:.4f}")
 
-    # 3. Evolution Strategy Setup
-    selection_strategy = TournamentSelection(tournament_size=7)  
-    survivor_strategy = CommaPlusStrategy()
-
-    evolution_manager = EvolutionManager(
-        selection_strategy=selection_strategy,
-        survivor_strategy=survivor_strategy,
-        mutator=mutator,
-        fitness_evaluator=fitness_evaluator,
-        llm_client=llm_client,
-        initial_population=population,
-        dataset_manager=dataset_manager,
-        num_parents=2,
-        per_species_hof_size=5,
-        hof_parent_ratio=0.2
+    # 3. Setup the Micro and Macro Layers
+    # Micro-Layer: Parent selection and breeding
+    selector = RankBasedSelection(selection_pressure=SELECTION_PRESSURE)
+    breeder = SpeciesBreeder(selector=selector, mutator=mutator, elitism_ratio=ELITISM_RATIO)
+    
+    # Macro-Layer: Ecology, speciation, and resource allocation
+    speciation_engine = SpeciationEngine(
+        breeder=breeder,
+        target_population_size=NUM_INDIVIDUALS,
+        target_species_min=MIN_NUM_SPECIES,
+        target_species_max=MAX_NUM_SPECIES,
+        dropoff_age=DROPOFF_AGE,
+        proportioanl_step=PROPORTIONAL_STEP
     )
-    print("Evolution Manager Ready.")
+
+    print("✅ Evolution Engine Ready.")
 
     # 4. Main Evolution Loop
     print("\n🚀 Starting Evolution Loop...")
     start_time = time.time()
-    x=True
-    encountered_species: dict[(int, str)] = {}  # Dictionary of (species_id, hex color)
-    while x==True:
-        # A. Create Next Generation (Includes Selection, Mutation, Evaluation)
-        # This returns the NEW population list (Species list or individual list depending on your manager return)
-        new_gen = await evolution_manager.create_new_generation()
+    generation_idx = 0
+    encountered_species = {}  # Dictionary of (species_id, hex color) for plotting
 
-        current_gen_idx = evolution_manager.current_generation_index  # Since index was incremented post-creation
-        log_generation_to_json(new_gen, current_gen_idx) # Log generation data to JSONL file
-        plot_path = plot_complexity_vs_fitness(generation_data=new_gen, generation_idx=current_gen_idx, species_colors_registry=encountered_species) # Generate and save plot
-        subprocess.Popen(['xdg-open', plot_path]) # Open the plot image using default viewer
+    while generation_idx < MAX_GENERATIONS:
+        # A. Logging and Analytics for the Current (Evaluated) Generation
+        best_fit = float('-inf')
+        worse_fit = float('inf')
+        total_fit = 0.0
+        total_nodes = 0
+        total_edges = 0
         
-        # B. Statistics Calculation
-        current_gen = evolution_manager.current_generation_index
-        
-        best_loss = inf
-        worse_loss = -inf
-        total_loss = 0.0
-        total_individuals = 0
-        
-        for item in new_gen:
-            # Handle both list formats safely
-            individual = item[1]
-            
-            fit = individual.genome.fitness
-            total_individuals += 1
-            total_loss += fit
+        for phenotype in evaluated_population:
+            fit = phenotype.genome.fitness
+            total_fit += fit
+            total_nodes += len(phenotype.genome.nodes)
+            total_edges += len(phenotype.genome.connections)
 
-            if fit < best_loss: best_loss = fit
-            if fit > worse_loss: worse_loss = fit
+            if fit > best_fit: best_fit = fit
+            if fit < worse_fit: worse_fit = fit
 
-        average_loss = total_loss / total_individuals if total_individuals > 0 else 0.0
+        avg_fit = total_fit / NUM_INDIVIDUALS
+        avg_nodes = total_nodes / NUM_INDIVIDUALS
+        avg_edges = total_edges / NUM_INDIVIDUALS
         
-        # C. Logging to Console
-        print(f"Gen {current_gen} | Avg Loss: {average_loss:.4f} | Best: {best_loss:.4f} | Worst: {worse_loss:.4f}")
+        print(f"\n--- Generation {generation_idx} ---")
+        print(f"Fitness -> Avg: {avg_fit:.2f} | Best: {best_fit:.2f} | Worst: {worse_fit:.2f}")
+        print(f"Structure -> Avg Nodes: {avg_nodes:.1f} | Avg Edges: {avg_edges:.1f}")
+        
+        # B. Utilities (Plotting & File Logging)
+        log_generation_to_json(evaluated_population, generation_idx) 
+        plot_path = plot_complexity_vs_fitness(evaluated_population, generation_idx, encountered_species) 
+        # (Optional: Only pop open the viewer every 10 generations to avoid spamming the screen)
+        #if generation_idx % 10 == 0: subprocess.Popen(['xdg-open', plot_path]) 
+        subprocess.Popen(['xdg-open', plot_path]) 
 
-        # D. Stop Criteria Checks
-        if best_loss <= TARGET_LOSS:
-            print(f"\n🏆 SUCCESS: Target Loss ({TARGET_LOSS}) reached! Final Best: {best_loss:.4f}")
+        # C. Stop Criteria Checks
+        if best_fit >= TARGET_FITNESS:
+            print(f"\n🏆 SUCCESS: Target Fitness ({TARGET_FITNESS}) reached! Final Best: {best_fit:.4f}")
             break
-            
         if (time.time() - start_time) > MAX_TIME_SECONDS:
             print(f"\n🛑 STOP: Maximum time limit ({MAX_TIME_SECONDS}s) reached.")
             break
-            
-        if current_gen >= MAX_GENERATIONS:
-            print(f"\n🛑 STOP: Maximum generations ({MAX_GENERATIONS}) reached.")
-            break
+
+        # D. THE GENETIC STEP (Macro + Micro Layers)
+        print(f"🧬 Speciating and Breeding Generation {generation_idx + 1}...")
+        
+        genomes_to_breed = [p.genome for p in evaluated_population]
+        unevaluated_next_gen = await speciation_engine.step_generation(genomes_to_breed)
+        
+        print(f"📊 Active Species count for next gen: {len(speciation_engine.species_list)}")
+        print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
+
+        # E. THE EVALUATION STEP
+        print("🧪 Fetching new problem pool and evaluating offspring...")
+        current_problem_pool = dataset_manager.get_batch(batch_size=BATCH_SIZE)
+        
+        # Next generation evaluates on the NEW batch of problems
+        await fitness_evaluator.evaluate_population(unevaluated_next_gen, current_problem_pool)
+        
+        # F. Prepare for next iteration
+        evaluated_population = unevaluated_next_gen
+        generation_idx += 1
 
     print("--- Evolution Finished ---")
 
-# --- Entry Point with Safety Wrapper ---
 if __name__ == "__main__":
     try:
         asyncio.run(run_evolution())
     finally:
-        # This ALWAYS runs, ensuring VRAM is freed
         force_cleanup()

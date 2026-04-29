@@ -10,9 +10,8 @@ class PromptNode:
         self.innovation_number = innovation_number if innovation_number is not None else self.id
         
         # 2. Structure & DNA
-        # We removed 'type' as requested, relying on Genome start/end pointers
         self.name = name 
-        self.instruction = instruction # Just a plain variable now
+        self.instruction = instruction
         
         # 3. Speciation Data
         self.embedding = embedding if embedding is not None else []
@@ -24,7 +23,6 @@ class PromptNode:
         return PromptNode(
             name=self.name, 
             instruction=self.instruction, 
-            # We copy the list to ensure the new node has its own memory space
             embedding=self.embedding.copy() if isinstance(self.embedding, list) else [],
             node_id=str(uuid.uuid4()), 
             innovation_number=self.innovation_number
