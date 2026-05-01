@@ -1,5 +1,2 @@
-evoenv
-era_env
-Devvone/venv/
 __pycache__/
-.venv
+venv

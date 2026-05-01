@@ -15,7 +15,7 @@ class UnifiedFitnessCalculator:
         self.llm = llm
         
         # Initial safe baselines for Generation 0
-        self.target_mean = 100.0
+        self.target_mean = 200.0
         self.target_std = 25.0   
 
     def update_baselines(self, token_usages: list[int]):

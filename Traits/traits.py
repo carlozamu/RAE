@@ -22,6 +22,14 @@ class Trait:
         
         in_tokens = len(prompt) // 4
         out_tokens = len(answer) // 4
+
+        """ print(f"Executed Trait '{self.node.name}' (ID: {self.node.id}) in {duration:.2f}s | In Tokens: {in_tokens} | Out Tokens: {out_tokens}")
+        print("--" * 20)
+        print(f"Context: {context}")
+        print("\n\n")
+        print(f"Answer: {answer}")
+        print("\n\n")
+        print("--" * 20) """
         
         return in_tokens, out_tokens, duration, answer
     

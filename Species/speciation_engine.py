@@ -27,6 +27,7 @@ class SpeciationEngine:
         self.target_population_size = target_population_size
         self.target_species_count = target_species_count
         self.dropoff_age = dropoff_age
+        self.proportioanl_step = proportioanl_step
 
         self.species_list: List[Species] = []
         self.compatibility_threshold = 2.0 # Starting point, will be dynamically tuned

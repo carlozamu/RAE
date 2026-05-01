@@ -7,10 +7,10 @@ import time
 import gc
 import torch
 import subprocess
-from math import inf
 
 # --- Internal Modules ---
 from Fitness.fitness import Fitness
+from Phenotype.phenotype import Phenotype
 from Mutations.mutator import Mutator
 from Data.cluttr import CLUTTRManager
 from Utils.utilities import _get_next_innovation_number, log_generation_to_json, plot_complexity_vs_fitness
@@ -23,15 +23,16 @@ from Species.species_breeder import SpeciesBreeder
 from Species.speciation_engine import SpeciationEngine
 
 # --- Configuration ---
+MODEL_NAME = "google/gemma-3-1b-it" # Ensure this matches your local Ollama or vLLM setup
+BASE_URL = "http://localhost:8000"  # Ensure this matches your local Ollama or vLLM setup
 MAX_GENERATIONS = 500
 MAX_TIME_SECONDS = 3600 * 10 # 10 Hours
 TARGET_FITNESS = 95.0        # Higher is better (Max is 100.0)
 STARTING_PROMPT = "You are an expert in reasoning. Given the input, provide the accurate response to the following problem."
-NUM_INDIVIDUALS = 30  
-MIN_NUM_SPECIES = 2
-MAX_NUM_SPECIES = 6
+NUM_INDIVIDUALS = 50  
+TARGET_SPECIES = 4
 DROPOFF_AGE = 8 # Generations a species can survive without improving max fitness  
-BATCH_SIZE = 20 # Number of problems each individual is evaluated on per generation
+BATCH_SIZE = 50 # Number of problems each individual is evaluated on per generation
 SELECTION_PRESSURE = 1.5
 ELITISM_RATIO = 0.2
 PROPORTIONAL_STEP = 0.075 # P-Controller gain for dynamic thresholding
@@ -50,7 +51,7 @@ async def run_evolution():
     print("\n--- Initializing ERA System ---")
     
     # 1. Initialize API and Core Tools
-    llm_client = LLM() 
+    llm_client = LLM(model_name=MODEL_NAME, base_url=BASE_URL) 
     fitness_evaluator = Fitness(llm=llm_client, use_reasoning=True)
     mutator = Mutator(breeder_llm_client=llm_client)
     dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
@@ -79,8 +80,7 @@ async def run_evolution():
     speciation_engine = SpeciationEngine(
         breeder=breeder,
         target_population_size=NUM_INDIVIDUALS,
-        target_species_min=MIN_NUM_SPECIES,
-        target_species_max=MAX_NUM_SPECIES,
+        target_species_count=TARGET_SPECIES,
         dropoff_age=DROPOFF_AGE,
         proportioanl_step=PROPORTIONAL_STEP
     )
@@ -137,7 +137,9 @@ async def run_evolution():
         print(f"🧬 Speciating and Breeding Generation {generation_idx + 1}...")
         
         genomes_to_breed = [p.genome for p in evaluated_population]
-        unevaluated_next_gen = await speciation_engine.step_generation(genomes_to_breed)
+        unevaluated_next_gen_genomes = await speciation_engine.step_generation(genomes_to_breed)
+        # wrap the new genomes into Phenotypes with empty fitness for the next evaluation step
+        unevaluated_next_gen: list[Phenotype] = [Phenotype(genome=g, llm_client=llm_client) for g in unevaluated_next_gen_genomes]
         
         print(f"📊 Active Species count for next gen: {len(speciation_engine.species_list)}")
         print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")

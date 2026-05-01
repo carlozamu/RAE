@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Dict, Tuple
 from Utils.LLM import LLM
 from Data.cluttr import CLUTTRManager
@@ -42,48 +43,78 @@ class Fitness:
         )
         return score, token_used
 
+    async def _evaluate_individual_full(self, individual: Phenotype, problem_pool: List[Dict], batch_size: int) -> List[int]:
+        """
+        Helper method to evaluate a single individual across all problems sequentially,
+        preserving the Circuit Breaker logic.
+        """
+        total_score = 0.0
+        failed_count = 0
+        token_usages = []
+        
+        for i, problem in enumerate(problem_pool):
+            # This remains sequential per-individual to support the DAG and circuit breaker
+            score, tokens = await self._evaluate_single_problem(individual, problem)
+            total_score += score
+            
+            if tokens > 0:
+                token_usages.append(tokens)
+            
+            if score < 0.1:
+                failed_count += 1
+            else:
+                failed_count = 0 
+                
+            # --- CIRCUIT BREAKER ---
+            if failed_count > len(problem_pool) * PERCENTAGE_FAILURE_THRESHOLD:
+                # Aggressive Penalty
+                remaining_questions = batch_size - (i + 1)
+                total_score -= (remaining_questions * self.calculator.acc_score)
+                break 
+        
+        # Calculate final fitness
+        avg_score = (total_score * 100) / batch_size
+        individual.genome.fitness = max(0.01, avg_score)
+        
+        # Return tokens so the parent gather() can collect them all
+        return token_usages
+
     async def evaluate_population(self, population: List[Phenotype], problem_pool: List[Dict]):
         """
-        Evaluates the population, scales scores up, and calculates the Red Queen 
-        token baselines for the next generation.
+        Evaluates the population using a Semaphore to strictly control 
+        GPU memory pressure (Continuous Batching limit).
         """
         if not problem_pool:
             raise ValueError("Problem pool cannot be empty.")
+        
+        print(f"Evaluating population of {len(population)} individuals on {len(problem_pool)} problems with circuit breaker threshold at {PERCENTAGE_FAILURE_THRESHOLD*100}% failures.")
 
         batch_size = len(problem_pool)
-        all_token_usages = [] # Tracks API usage to shift baselines
 
-        for individual in population:
-            total_score = 0.0
-            failed_count = 0
-            
-            for i, problem in enumerate(problem_pool):
-                score, tokens = await self._evaluate_single_problem(individual, problem)
-                total_score += score
-                
-                if tokens > 0:
-                    all_token_usages.append(tokens)
-                
-                # If score < 0.1, it means they got the question wrong (due to missing ans_points)
-                if score < 0.1:
-                    failed_count += 1
-                else:
-                    failed_count = 0 
-                    
-                # --- CIRCUIT BREAKER ---
-                if failed_count > len(problem_pool) * PERCENTAGE_FAILURE_THRESHOLD:
-                    # Aggressive Penalty: Deduct points for the unseen questions
-                    remaining_questions = batch_size - (i + 1)
-                    total_score -= (remaining_questions * self.calculator.acc_score)
-                    break 
-            
-            # 1. Average the score across the entire batch (scales cleanly up to 100)
-            avg_score = (total_score * 100) / batch_size
-            
-            # 2. Convert to strictly positive fitness and assign
-            # If the circuit breaker tanked the score into negatives, it safely floors at 0.01
-            individual.genome.fitness = max(0.01, avg_score)
+        # --- THE HARDWARE LIMITER ---
+        MAX_CONCURRENT = 50 
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
-        # 3. Apply the Co-evolutionary Red Queen Shift for the NEXT generation
+        async def _bounded_evaluate(individual):
+            """Wrapper to enforce the semaphore limit per individual."""
+            async with semaphore:
+                return await self._evaluate_individual_full(individual, problem_pool, batch_size)
+
+        # 1. Create the bounded tasks
+        tasks = [
+            _bounded_evaluate(individual)
+            for individual in population
+        ]
+
+        # 2. Fire gather. It will attempt to run all 60, but the Semaphore 
+        # will physically block it from sending more than MAX_CONCURRENT at once.
+        results = await asyncio.gather(*tasks)
+
+        # 3. Aggregate tokens and apply Red Queen shift
+        all_token_usages = []
+        for individual_tokens in results:
+            all_token_usages.extend(individual_tokens)
+
         if all_token_usages:
             self.calculator.update_baselines(all_token_usages)
+    

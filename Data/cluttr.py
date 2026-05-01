@@ -36,7 +36,7 @@ class CLUTTRManager:
             print(f"Error loading CLUTTR dataset: {e}")
             self.dataset = None
 
-    def get_batch(self, split: str = "train", size: int = 20, random_seed: int = None) -> List[Dict[str, str]]:
+    def get_batch(self, split: str = "train", batch_size: int = 20, random_seed: int = None) -> List[Dict[str, str]]:
         """
         Returns a batch of formatted problems.
         Each problem is a dict: {'question': str, 'answer': str, 'metadata': dict}
@@ -52,7 +52,7 @@ class CLUTTRManager:
              random.seed(random_seed)
         
         # Select random indices
-        indices = random.sample(range(total_len), min(size, total_len))
+        indices = random.sample(range(total_len), min(batch_size, total_len))
         
         batch = []
         for idx in indices:
@@ -91,7 +91,7 @@ Story:
 Query:
 What is the family relationship of {query}?
 
-Answer with only a single English kinship noun."""
+Answer with only a single English kinship noun that represents how the second individual relates to the first one."""
 
     @classmethod
     def normalize_text_simple(cls, text: str) -> str:
