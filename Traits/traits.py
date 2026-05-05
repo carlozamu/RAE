@@ -6,18 +6,20 @@ class Trait:
     """
     Transient executor for a single gene.
     """
-    def __init__(self, node: PromptNode, llm_client: LLM):
+    def __init__(self, node: PromptNode, llm_client: LLM, primer: str = ""):
         self.node = node
         self.llm = llm_client
+        self.primer = primer
 
     async def execute(self, context: str) -> tuple[int, int, float, str]:
         """
         Executes and returns (in_tokens, out_tokens, duration, answer).
         """
-        prompt = f"""{context}\nInstruction: {self.node.instruction}\n"""
+        user_prompt =f"<start_of_turn>user\n{self.node.instruction}<end_of_turn>\n<start_of_turn>model\n{self.primer}"
+        prompt = context + user_prompt
         
         start_t = time.time()
-        answer = await self.llm.generate_text(user_prompt=prompt, primer="Answer: ")
+        answer = await self.llm.generate_text(user_prompt=prompt)
         duration = time.time() - start_t
         
         in_tokens = len(prompt) // 4

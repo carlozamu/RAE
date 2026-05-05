@@ -36,10 +36,8 @@ class LLM:
         """
         return self.embedder.encode(text).tolist()
 
-    async def generate_text(self, user_prompt:str, max_tokens=512, stop=None, temperature=0.2, primer="") -> str:
-        # 1. Format the prompt (Gemma specific)
-        formatted_prompt = f"<start_of_turn>user\n{user_prompt}<end_of_turn>\n<start_of_turn>model\n{primer}"
-        
+    async def generate_text(self, user_prompt:str, max_tokens=512, stop=None, temperature=0.2) -> str:
+        # 1. Format the prompt (Gemma specific)        
         stop_tokens = ["<end_of_turn>"]
         if stop:
             stop_tokens.extend(stop if isinstance(stop, list) else [stop])
@@ -53,7 +51,7 @@ class LLM:
             endpoint = f"{self.base_url}/api/generate"
             payload = {
                 "model": self.model_name,
-                "prompt": formatted_prompt,
+                "prompt": user_prompt,
                 "stream": False,
                 "options": {
                     "num_predict": max_tokens, # Ollama's version of max_tokens
@@ -67,7 +65,7 @@ class LLM:
             endpoint = f"{self.base_url}/v1/completions"
             payload = {
                 "model": self.model_name,
-                "prompt": formatted_prompt,
+                "prompt": user_prompt,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "stop": stop_tokens

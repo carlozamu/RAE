@@ -8,14 +8,15 @@ class Phenotype:
     def __init__(self, genome: AgentGenome, llm_client: LLM):
         self.genome = genome
         self.llm = llm_client
+        self.system_persona = "You are an expert reasoning AI solving a complex logic puzzle."
 
     async def run(self, problem: str) -> Dict[str, Any]:
         # 1. Get Plan
         # execution_order is [(NodeObject, [Parent_IDs]), ...]
         execution_order = self.genome.get_execution_order() 
         
-        # 2. Lightweight Memory (ID -> Answer String)
-        trait_answers: Dict[str, str] = {}
+        # 2. Lightweight Memory (ID -> Instructions, Answer String)
+        trait_answers: Dict[str, tuple[str, str]] = {}
         
         total_in_tokens = 0
         total_out_tokens = 0
@@ -25,27 +26,33 @@ class Phenotype:
         for node, parent_ids in execution_order:
             
             # A. Build Context
-            context_parts = [f"Problem:\n{problem}\n"]
+            #context_parts = [f"<start_of_turn>system\n{problem}<end_of_turn>\n"]
+            system_block = f"{self.system_persona}\n\nGlobal Problem Context:\n{problem}"
+            context_parts = [f"<start_of_turn>system\n{system_block}<end_of_turn>\n"]
             
             if parent_ids:
-                context_parts.append("Reasoning Context:")
                 for pid in parent_ids:
                     # We only fetch the string, saving memory
                     if pid in trait_answers:
-                        # OPTIONAL: You might want to prefix this with node.name 
-                        # if you have access to the parent node object easily.
-                        # For now, raw answer is efficient.
-                        context_parts.append(trait_answers[pid])
+                        parent_instructions, parent_answer = trait_answers[pid]
+                        parent_turn = f"<start_of_turn>user\n{parent_instructions}<end_of_turn>\n<start_of_turn>model\n{parent_answer}<end_of_turn>\n"
+                        context_parts.append(parent_turn)
             
-            full_context = "\n".join(context_parts)
+            full_context = "".join(context_parts)
+
+            # Chek if it is the last node
+            if node.id == self.genome.end_node_innovation_number:
+                primer = "Answer: "
+            else:
+                primer = ""
             
             # B. Execute (Transient)
-            trait = Trait(node, self.llm)
+            trait = Trait(node, self.llm, primer=primer)
             # Fix: renamed 'time' to 'duration' to avoid shadowing module
             in_t, out_t, duration, answer = await trait.execute(full_context)
             
             # C. Store Result
-            trait_answers[node.id] = answer
+            trait_answers[node.id] = (node.instruction, answer)
             
             # D. Accumulate Stats
             total_in_tokens += in_t
@@ -53,7 +60,7 @@ class Phenotype:
             total_time += duration
 
         # 4. Final Result
-        final_answer = trait_answers[execution_order[-1][0].id]
+        final_answer = trait_answers[execution_order[-1][0].id][1]
         
         final_object = {
             "answer": final_answer,
