@@ -8,7 +8,7 @@ from Fitness.fitness_function import UnifiedFitnessCalculator
 PERCENTAGE_FAILURE_THRESHOLD = 0.7 # If more than thi % of the batch is failed, trigger circuit breaker
 
 class Fitness:
-    def __init__(self, llm: LLM, use_reasoning: bool = True) -> None:
+    def __init__(self, llm: LLM, use_reasoning: bool = False) -> None:
         self.use_reasoning = use_reasoning
         self.calculator = UnifiedFitnessCalculator(
             accuracy_score=1.0,
@@ -19,7 +19,7 @@ class Fitness:
     async def _evaluate_single_problem(self, individual: Phenotype, problem: Dict) -> Tuple[float, int]:
         """Evaluates a single problem and returns (Score, Tokens_Used)."""        
         try:
-            response = await individual.run(problem=problem['question'])
+            response = await individual.run(system_instructions=problem['system_instructions'], problem=problem['question'], primer=problem['primer'])
             generated_ans = response['answer']
             stats = response['stats']
             token_used = stats.get('total_tokens', 0)

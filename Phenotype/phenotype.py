@@ -8,9 +8,8 @@ class Phenotype:
     def __init__(self, genome: AgentGenome, llm_client: LLM):
         self.genome = genome
         self.llm = llm_client
-        self.system_persona = "You are an expert reasoning AI solving a complex logic puzzle."
 
-    async def run(self, problem: str) -> Dict[str, Any]:
+    async def run(self, problem: str, system_instructions:str = "", last_primer: str = "") -> Dict[str, Any]:
         # 1. Get Plan
         # execution_order is [(NodeObject, [Parent_IDs]), ...]
         execution_order = self.genome.get_execution_order() 
@@ -26,9 +25,7 @@ class Phenotype:
         for node, parent_ids in execution_order:
             
             # A. Build Context
-            #context_parts = [f"<start_of_turn>system\n{problem}<end_of_turn>\n"]
-            system_block = f"{self.system_persona}\n\nGlobal Problem Context:\n{problem}"
-            context_parts = [f"<start_of_turn>system\n{system_block}<end_of_turn>\n"]
+            context_parts = [f"<start_of_turn>system\n{system_instructions}\n {problem}<end_of_turn>\n"]
             
             if parent_ids:
                 for pid in parent_ids:
@@ -42,12 +39,12 @@ class Phenotype:
 
             # Chek if it is the last node
             if node.id == self.genome.end_node_innovation_number:
-                primer = "Answer: "
+                final_primer = last_primer
             else:
-                primer = ""
+                final_primer = ""
             
             # B. Execute (Transient)
-            trait = Trait(node, self.llm, primer=primer)
+            trait = Trait(node, self.llm, primer=final_primer)
             # Fix: renamed 'time' to 'duration' to avoid shadowing module
             in_t, out_t, duration, answer = await trait.execute(full_context)
             

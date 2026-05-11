@@ -61,10 +61,12 @@ class CLUTTRManager:
             query = item["query"]
             target = item["target_text"]
             
-            prompt = self.build_prompt_clutrr_zero_shot(story, query)
+            sys_instr, prompt, primer = self.build_prompt_clutrr(story, query)
             
             batch.append({
+                "system_instructions": sys_instr,
                 "question": prompt,
+                "primer": primer,
                 "answer": target,
                 "task_type": "cluttr",
                 "metadata": {
@@ -75,23 +77,50 @@ class CLUTTRManager:
             })
             
         return batch
-
+    
     @staticmethod
-    def build_prompt_clutrr_zero_shot(story: str, query: str) -> str:
-        # If query is a tuple string representation like "('Ashley', 'Nicholas')", clean it up for display? 
-        # The notebook passes it directly into {query} in the f-string.
-        # Let's inspect the query format. In the notebook output: ("Ashley", "Nicholas")
-        
-        return f"""You will be given a short story about family members and their relationships.
-From this story, infer the exact family relationship between the two people in the query.
+    def build_prompt_clutrr_baseline(story: str, query: str) -> tuple[str, str]:
+        clean_query = query.replace("(", "").replace(")", "").replace("'", "")
+        try:
+            name1, name2 = [name.strip() for name in clean_query.split(',')]
+        except ValueError:
+            name1, name2 = "Person A", "Person B"
 
-Story:
+        # OPTIMIZATION: Naming the entities directly in the task line
+        # to maximize attention gravity right before generation.
+        prompt = f"""Story:
 {story}
 
-Query:
-What is the family relationship of {query}?
+Task: State {name2}'s exact family relationship to {name1}."""
+        
+        # The primer traps the generation
+        primer = f"Answer: {name2} is {name1}'s "
 
-Answer with only a single English kinship noun that represents how the second individual relates to the first one."""
+        baseline_prompt = f"<start_of_turn>user\n{prompt}\n<end_of_turn>\n<start_of_turn>model\n{primer}"
+        
+        return baseline_prompt
+    
+    @staticmethod
+    def build_prompt_clutrr(story: str, query: str) -> tuple[str, str]:
+        clean_query = query.replace("(", "").replace(")", "").replace("'", "")
+        try:
+            name1, name2 = [name.strip() for name in clean_query.split(',')]
+        except ValueError:
+            name1, name2 = "Person A", "Person B"
+
+        system_instructions = "You are a logical reasoning AI."
+
+        # OPTIMIZATION: Naming the entities directly in the task line
+        # to maximize attention gravity right before generation.
+        gen_zero_prompt = f"""Story:
+{story}
+
+Task: Trace the family lineage step-by-step to find the exact kinship noun connecting {name2} to {name1}."""
+        
+        # The primer traps the generation
+        primer = f"Answer: {name2} is {name1}'s "
+        
+        return system_instructions, gen_zero_prompt, primer
 
     @classmethod
     def normalize_text_simple(cls, text: str) -> str:
