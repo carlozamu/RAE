@@ -7,6 +7,10 @@ from Utils.utilities import _get_next_innovation_number
 #from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
 
+MUTATIONS_TEMPERATURE = 0.8
+MATURITY_THRESHOLD = 7
+
+
 class MutType:
     # Architectural (Global Topology)
     ARCH_ADD_CONN = "arch_add_connection"
@@ -19,6 +23,8 @@ class MutType:
     GENE_SIMPLIFY = "gene_simplify"
     GENE_REFORMULATE = "gene_reformulate"
     GENE_SPLIT = "gene_split" 
+    GENE_ADD_PERSONA = "gene_add_persona"
+    GENE_INJECT_REASONING = "gene_inject_reasoning"
 
 class Mutator:
     """
@@ -57,81 +63,79 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         "gene_probs": {
             MutType.GENE_EXPAND: 0.25,
             MutType.GENE_SIMPLIFY: 0.25,
-            MutType.GENE_REFORMULATE: 0.30,
-            MutType.GENE_SPLIT: 0.20  # 20% chance to split if selected
+            MutType.GENE_REFORMULATE: 0.15,
+            MutType.GENE_SPLIT: 0.10,
+            MutType.GENE_ADD_PERSONA:0.10,
+            MutType.GENE_INJECT_REASONING:0.15
         }
     }
 
     @staticmethod
-    def get_dynamic_config(generation: int, parent_node_count: int) -> dict:
+    def get_dynamic_config(generation: int, node_count: int, connections_count: int) -> dict:
         """
-        Calculates mutation probabilities using a 'Phase Shift' strategy.
-        Early phase: Aggressive growth (Add Nodes/Split).
-        Late phase: Refinement (Connections, Removal, Simplification).
+        Calculates mutation probabilities using a strict mathematical 'Phase Shift' strategy.
+        Architectural mutations act as a self-correcting thermostat centered at N=7 nodes.
+        Gene mutations shift from early Cognitive Structuring to late Linguistic Compression.
         """
         
-        # --- 1. Global Rate Calculations (Existing Logic) ---
-        # Architectural Decay: Cools down topology changes over generations
-        p_arch = max(0.33, 0.9 ** (generation-1))
-        
-        # Gene Mutation: 1/N rule (approx 1 mutation per child)
-        p_gene = max(0.33,1.0 / max(1, parent_node_count))
+        # --- 1. Global Rate Calculations ---
+        # Architectural Decay: Cools down global topology changes over generations
+        p_arch = max(0.25, 0.75 ** (generation + 1))
+        # Gene Mutation: Ensures roughly 1 mutation per child graph
+        p_gene = max(0.25, 0.75 / max(1, node_count))
 
-
-        # --- 2. Dynamic Probability Scaling ---
+        # --- 2. Architectural Probabilities (Thermostat to N=7) ---
         
-        # Define "Maturity": At what size is the graph considered "expanded"?
-        # CHANGED: Lowered to 7. Agents will switch to optimization mode much faster.
-        MATURITY_THRESHOLD = 15
-        
-        # Calculate 'alpha' (0.0 = Start/Small, 1.0 = Mature/Large)
-        # We subtract 1 because the minimum node count is 1.
-        if parent_node_count <= 1:
-            alpha = 0.0
-        elif parent_node_count >= MATURITY_THRESHOLD:
-            alpha = 1.0
+        # A. Node Balance (Sum = 0.50)
+        if node_count <= 7:
+            # Scales from 0.0 at N=1 to 0.25 at N=7
+            t_node = (node_count - 1) / 6.0 if node_count > 1 else 0.0
+            p_remove_node = 0.25 * t_node
         else:
-            alpha = (parent_node_count - 1) / (MATURITY_THRESHOLD - 1)
+            # Scales from 0.25 at N=7 to 0.50 at N=14 (capped at 14)
+            t_node = min(1.0, (node_count - 7) / 7.0)
+            p_remove_node = 0.25 + (0.25 * t_node)
+            
+        p_add_node = 0.50 - p_remove_node
 
-        # Helper for Linear Interpolation
-        def lerp(start, end, t):
+        # B. Connection Balance (Sum = 0.50) based on DAG Density
+        if node_count <= 1:
+            density = 1.0 # Cannot add connections if only 1 node exists
+        else:
+            max_possible_connections = (node_count * (node_count - 1)) / 2.0
+            density = min(1.0, connections_count / max_possible_connections)
+            
+        p_remove_conn = 0.50 * density
+        p_add_conn = 0.50 - p_remove_conn
+
+        # --- 3. Gene Probabilities (Structuring -> Compression) ---
+        
+        # Alpha scalar: 0.0 when N=1, 1.0 when N>=7
+        alpha = min(1.0, (node_count - 1) / 6.0) if node_count > 1 else 0.0
+
+        def lerp(start: float, end: float, t: float) -> float:
             return start + (end - start) * t
 
         return {
             "p_architectural_event": p_arch,
             "p_mutate_node": p_gene,
             
-            # Interpolate Architectural Probabilities
             "arch_probs": {
-                # Growth: Starts at 100%, drops to 35%
-                MutType.ARCH_ADD_NODE:    lerp(1.0, 0.35, alpha),
-                
-                # Complexity: Starts at 0%, rises to 30%
-                MutType.ARCH_ADD_CONN:    lerp(0.0, 0.30, alpha),
-                
-                # Pruning: Starts at 0%, rises to 15%
-                MutType.ARCH_REMOVE_NODE: lerp(0.0, 0.15, alpha),
-                
-                # Cleanup: Starts at 0%, rises to 20%
-                MutType.ARCH_REMOVE_CONN: lerp(0.0, 0.20, alpha),
+                MutType.ARCH_ADD_NODE:    p_add_node,
+                MutType.ARCH_REMOVE_NODE: p_remove_node,
+                MutType.ARCH_ADD_CONN:    p_add_conn,
+                MutType.ARCH_REMOVE_CONN: p_remove_conn,
             },
             
-            # Interpolate Gene Probabilities
             "gene_probs": {
-                # Expansion: 0.2 -> 0.3 (Slight increase to refine details)
-                MutType.GENE_EXPAND:      lerp(0.2, 0.3, alpha),
-                
-                # Exploration: 0.4 -> 0.3 (High initial exploration, then stabilize)
-                MutType.GENE_REFORMULATE: lerp(0.4, 0.3, alpha),
-                
-                # Optimization: 0.0 -> 0.2 (Only simplify once graph is complex)
-                MutType.GENE_SIMPLIFY:    lerp(0.0, 0.2, alpha),
-                
-                # Major Structural Change: 0.4 -> 0.2 (Split less often as we mature)
-                MutType.GENE_SPLIT:       lerp(0.4, 0.2, alpha)
+                MutType.GENE_SPLIT:            lerp(0.30, 0.05, alpha),
+                MutType.GENE_INJECT_REASONING: lerp(0.25, 0.10, alpha),
+                MutType.GENE_EXPAND:           lerp(0.15, 0.05, alpha),
+                MutType.GENE_ADD_PERSONA:      lerp(0.10, 0.15, alpha),
+                MutType.GENE_REFORMULATE:      lerp(0.20, 0.35, alpha),
+                MutType.GENE_SIMPLIFY:         lerp(0.00, 0.30, alpha)
             }
         }
-
     def __init__(self, breeder_llm_client: LLM, default_config=None):
         """
         :param breeder_llm_client: Wrapper for the LLM API.
@@ -377,19 +381,16 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             print("Global: No removable connections found (all are critical bridges).")
 
     # ------- Main Mutation Logic -------
-    async def mutate(self, genome: AgentGenome, runtime_config=None) -> AgentGenome:
+    async def mutate(self, genome: AgentGenome, current_generation:int=0) -> AgentGenome:
         """
         Main entry point. Returns a mutated CLONE of the genome.
         
         :param runtime_config: Optional dict. If provided, it merges with defaults 
                                ONLY for this single execution (e.g. for simulated annealing).
         """
-        # 1. Merge Configs (Ephemeral for this run)
-        if runtime_config:
-            current_config = copy.deepcopy(self.baseline_config)
-            self._recursive_update(current_config, runtime_config)
-        else:
-            current_config = self.baseline_config
+        # 1. Get Configs
+        enabled_connections = [c for c in genome.connections.values() if c.enabled]
+        current_config = self.get_dynamic_config(generation=current_generation, node_count=len(genome.nodes), connections_count=len(enabled_connections))
 
         # 2. Extract active probabilities
         p_arch_event = current_config["p_architectural_event"]
@@ -514,150 +515,250 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         #print(f"Applying {style} mutation to node: {node.name}\nOriginal: {node.instruction}")
 
         expand_prompt = f"""Task: Expansion.
-Rewrite the instruction to be more detailed by breaking it down into specific, actionable steps.
+Rewrite the instruction to be more detailed by breaking it down into specific, actionable logical steps. 
+Constraint: You must preserve only the exact original objective. Do not add new goals.
 
 ### Examples
 
-Original: Read the user input csv file.
-Detailed Version: Open the csv file at the specified path, then parse the rows to extract column headers and values.
+Original: Identify the connection between the two subjects.
+Detailed Version: First, locate the two target subjects in the provided text. Second, trace any intermediary links or shared attributes between them. Finally, synthesize these links to deduce their exact connection.
 
-Original: Extract the 'price' column and calculate mean.
-Detailed Version: Select the 'price' column from the dataframe, convert values to numeric, and compute the arithmetic average.
+Original: Think step-by-step to find the answer.
+Detailed Version: Break down the problem into individual logical components. Analyze each component sequentially, ensuring each deduction is strictly grounded in the provided facts before reaching the final conclusion.
 
-Original: Decompose the problem.
-Detailed Version: Analyze the main objective, break it down into a series of atomic sub-tasks, and solve them sequentially.
+Original: Filter the relevant information.
+Detailed Version: Review the provided context and actively discard any extraneous details. Isolate only the specific facts that directly contribute to solving the core objective.
 
 ### Current Task
 Original: {node.instruction}
 """
+
         expand_primer = "Detailed Version:"
 
         simplify_prompt = f"""Task: Simplification.
-Compress the instruction into a single, concise high-level goal. Remove implementation details.
+Compress the instruction into a single, concise high-level cognitive goal. Remove verbose step-by-step details.
+Constraint: You must preserve the exact underlying goal and any strict output formats. Do not change *what* needs to be done, only simplify the description of *how* to do it.
 
 ### Examples
 
-Original: Open the csv file at the specified path, then parse the rows to extract column headers and values.
-Simplified Version: Read the CSV file.
+Original: First, locate the two target subjects in the provided text. Second, trace any intermediary links or shared attributes between them. Finally, synthesize these links to deduce their exact connection.
+Simplified Version: Identify the connection between the subjects.
 
-Original: Select the 'price' column from the dataframe, convert values to numeric, and compute the arithmetic average.
-Simplified Version: Calculate the average price.
+Original: Break down the problem into individual logical components. Analyze each component sequentially, ensuring each deduction is strictly grounded in the provided facts before reaching the final conclusion.
+Simplified Version: Think step-by-step to reach a logical conclusion.
 
-Original: Analyze the main objective, break it down into a series of atomic sub-tasks, and solve them sequentially.
-Simplified Version: Decompose the problem.
+Original: Review the provided context and actively discard any extraneous details. Isolate only the specific facts that directly contribute to solving the core objective.
+Simplified Version: Extract only the relevant facts.
 
 ### Current Task
 Original: {node.instruction}
 """
+
         simplify_primer = "Simplified Version:"
 
-        reformulate_prompt = f"""Task: Paraphrasing.
-Rewrite the instruction using different vocabulary and sentence structure while preserving the exact original meaning. Do not add or remove steps.
+        reformulate_prompt = f"""Task: Stylistic Paraphrasing.
+Rewrite the instruction using different vocabulary and sentence structure while preserving the exact original cognitive goal. Do not add or remove logical steps.
+
+Constraint: You must strictly preserve any specific output formatting rules (e.g., "State only the one word"). Change the phrasing of the thought process, but NEVER change the final output requirement.
+
+Style Directive: Before writing, internally select and apply one of the following distinct cognitive styles:
+1. Inquisitive (Framing the task as a direct question to the AI)
+2. Concise & Direct (Minimalist, stripped of all filler words)
+3. Academic & Formal (Highly precise, analytical language)
+4. Imperative (Strong, commanding action verbs)
 
 ### Examples
 
-Original: Calculate the sum of the array elements.
-Reformulated Version: Compute the total value of all items in the list.
+(Inquisitive)
+Original: State only the single kinship word that describes the relationship.
+Reformulated Version: What specific kinship term defines their connection? Output only that single word.
 
-Original: If the file does not exist, create it.
-Reformulated Version: Generate a new file if one is not found at the location.
+(Concise & Direct)
+Original: Think step-by-step to reach a logical conclusion.
+Reformulated Version: Systematically derive the logical conclusion.
 
-Original: Sort the data by date in descending order.
-Reformulated Version: Order the dataset from newest to oldest based on the date.
+(Academic & Formal)
+Original: Identify the connection between the subjects.
+Reformulated Version: Deduce the exact relational link connecting the specified entities.
+
+(Imperative)
+Original: Read the context carefully and extract the right answer.
+Reformulated Version: Isolate the correct answer directly from the provided context.
 
 ### Current Task
 Original: {node.instruction}
 """
+
         reformulate_primer = "Reformulated Version:"
+
+        persona_prompt = f"""Task: Persona Injection.
+Rewrite the instruction by commanding the AI to adopt a highly specific, expert cognitive persona. If a persona is already implied, change it to a different one.
+
+Constraint: You must preserve the exact underlying goal and any strict output formatting rules. Wrap the original logic in the persona's perspective, but NEVER change the required format of the final answer.
+
+Persona Directive: Before writing, internally select and apply one of the following distinct expert archetypes:
+1. The Master Detective (Focuses on clues, evidence tracing, and hidden links)
+2. The Rigorous Mathematician (Focuses on axioms, variables, and absolute proof)
+3. The Skeptical Auditor (Focuses on verifying facts and actively discarding assumptions)
+4. The Systems Engineer (Focuses on structural relationships and node mappings)
+
+### Examples
+
+(The Master Detective)
+Original: Identify the connection between the subjects.
+Mutated Version: Act as a world-class detective. Scour the provided text for clues and trace the evidence to deduce the exact connection between the subjects.
+
+(The Rigorous Mathematician)
+Original: Think step-by-step to reach a logical conclusion.
+Mutated Version: You are a brilliant mathematician. Construct a rigorous, step-by-step proof derived solely from the provided axioms to reach an undeniable logical conclusion.
+
+(The Skeptical Auditor)
+Original: Extract only the relevant facts.
+Mutated Version: As a strict auditor, review the context with intense skepticism. Discard all extraneous noise and isolate only the verified facts required for the objective.
+
+(The Systems Engineer)
+Original: State only the single kinship word that describes the relationship.
+Mutated Version: You are an expert systems engineer mapping a relational graph. What specific terminal node (kinship term) defines their connection? Output only that single word.
+
+### Current Task
+Original: {node.instruction}
+"""
+
+        persona_primer = "Mutated Version:"
+
+        reasoning_prompt = f"""Task: Reasoning Injection.
+Enhance the instruction by explicitly commanding the AI to apply a specific cognitive reasoning framework before generating its final answer. If a reasoning style is already implied, add a new one to further deepen the thought process.
+
+Constraint: You must preserve the exact underlying goal and any strict output formatting rules. You may add instructions on *how* to think before answering, but NEVER change the required format of the final answer.
+
+Reasoning Directive: Before writing, internally select and apply one of the following distinct reasoning frameworks:
+1. Chain of Thought (Force a sequential, step-by-step logical progression)
+2. Working Backwards (Start from the target objective and trace dependencies backward)
+3. Falsification (Explicitly rule out incorrect options before settling on the true answer)
+4. Sub-goal Decomposition (Break the main problem into smaller, independent questions to answer sequentially)
+
+### Examples
+
+(Chain of Thought)
+Original: Deduce the exact relational link connecting the specified entities.
+Mutated Version: Deduce the exact relational link connecting the specified entities. Before answering, carefully map out the logical progression step-by-step to ensure absolute accuracy.
+
+(Working Backwards)
+Original: Identify the connection between the subjects.
+Mutated Version: Identify the connection between the subjects. Begin by looking at the final subject and logically work backward through their direct dependencies until you reach the starting subject.
+
+(Falsification)
+Original: State only the single kinship word that describes the relationship.
+Mutated Version: First, internally review all possible relationships and explicitly rule out the logically impossible ones. Then, state only the single kinship word that describes the true relationship.
+
+(Sub-goal Decomposition)
+Original: Extract only the relevant facts.
+Mutated Version: First, divide the text into independent informational chunks. Evaluate the relevance of each chunk individually. Finally, extract only the relevant facts required for the objective.
+
+### Current Task
+Original: {node.instruction}
+"""
+
+        reasoning_primer = "Mutated Version:"
 
         # Select the prompt
         if style == "expand":
-            prompt = expand_prompt
-            primer = expand_primer
+            prompt, primer = expand_prompt, expand_primer
         elif style == "simplify":
-            prompt = simplify_prompt
-            primer = simplify_primer
+            prompt, primer = simplify_prompt, simplify_primer
+        elif style == "persona":
+            prompt, primer = persona_prompt, persona_primer
+        elif style == "reasoning":
+            prompt, primer = reasoning_prompt, reasoning_primer
         else:
-            prompt = reformulate_prompt
-            primer = reformulate_primer
+            prompt, primer = reformulate_prompt, reformulate_primer
 
-        response: str = await self.llm.generate_text(prompt, max_tokens=safe_max_tokens, temperature=0.2, primer=primer)
+        # CRITICAL FIX: Temperature set to 0.8 to force genetic diversity
+        response: str = await self.llm.generate_text(prompt, max_tokens=safe_max_tokens, temperature=MUTATIONS_TEMPERATURE, primer=primer)
         
         if response and len(response.strip()) > 5:
-            #print(f"New {style} Instruction: \n{response}\n\n")
             node.instruction = response.strip()
             node.embedding = self.llm.get_embedding(response)
         else:
-            print(f"Failed to generate new instruction for {node.name}")
-
+            print(f"Failed to generate new instruction for {node.name}. Retaining original.")
+            
     async def _generate_new_node(self, name1: str, inst1: str, name2: str, inst2: str) -> PromptNode:
         """
-        Asks for a bridging step.
-        Returns: (name, instruction)
+        Asks for a bridging cognitive step.
+        Returns: A new PromptNode object connecting Step A and Step C.
         """
-        #print(f"Applying bridge mutation to nodes: {name1} -> {name2},\nOriginal Instructions: \n1:{inst1}\n2:{inst2}")
-        prompt = f"""Task: Create a missing intermediate step that logically connects Step A and Step C.
-Format: Name: <name> | Instr: <instruction>
+        bridge_prompt = f"""System Directive: You are an abstract cognitive routing engine. Your goal is to construct generalized reasoning pathways.
+
+Task: Logical Bridge Insertion.
+Create a missing intermediate cognitive step that logically bridges the gap between Step A and Step C. 
+
+Constraint: You must output exactly ONE intermediate step using the strict format `Name: <name> | Instr: <instruction>`. Do not add any conversational filler, and do not create more than one step.
 
 ### Examples
 
-[Step A] Name: Get Text | Instr: Extract the raw text from the input source.
-[Step C] Name: Summarize | Instr: Write a one-sentence summary of the content.
-[Step B] Name: Clean Text | Instr: Remove special characters and normalize the whitespace in the text.
+[Step A] Name: Extract Variables | Instr: Identify the core subjects and conditions stated in the premise.
+[Step C] Name: Final Deduction | Instr: Synthesize the findings into a single verifiable conclusion.
+[Step B] Name: Formulate Dependencies | Instr: Map out how the extracted variables interact and logically depend on one another.
 
-[Step A] Name: Plan Course | Instr: Outline the high-level goals for a history course.
-[Step C] Name: Create Exam | Instr: Write a final exam testing the students' knowledge.
-[Step B] Name: Create Lessons | Instr: Develop detailed lesson plans and lectures covering the course goals.
+[Step A] Name: Define Objective | Instr: Clarify the exact question that needs to be answered.
+[Step C] Name: Execute Solution | Instr: Calculate or derive the final answer based on the established framework.
+[Step B] Name: Devise Strategy | Instr: Formulate a step-by-step logical plan to move from the initial objective to the final solution.
 
-[Step A] Name: Clean Data | Instr: Remove duplicates and outliers from the dataset.
-[Step C] Name: Create Report | Instr: Generate a comprehensive report summarizing the findings.
-[Step B] Name: Analyze Data | Instr: Analyze the dataset for patterns and insights.
+[Step A] Name: Read Context | Instr: Review the provided text carefully.
+[Step C] Name: Filter Noise | Instr: Discard all statements that do not directly contribute to the target question.
+[Step B] Name: Isolate Facts | Instr: Extract the specific factual claims from the context so they can be evaluated.
 
 ### Current Task
 [Step A] Name: {name1} | Instr: {inst1}
 [Step C] Name: {name2} | Instr: {inst2}
 """
-        primer = "[Step B] Name:"
-        # We prime the model with "Name:" so it completes the rest
-        response: str = await self.llm.generate_text(prompt, max_tokens=128, temperature=0.2, primer=primer)
-        #print(f"New Node:\nName:{response}\n\n")
+
+        bridge_primer = "[Step B] Name:"
+        
+        response: str = await self.llm.generate_text(bridge_prompt, max_tokens=128, temperature=MUTATIONS_TEMPERATURE, primer=bridge_primer)
         
         # Robust Parsing
         try:
-            # We prepend "Name:" because the model completes it
             full_text = "Name:" + response 
             name = full_text.split("Name:")[1].split("| Instr:")[0].strip()
-            #print(f"Name: {name}")
             instruction = full_text.split("Instr:")[1].strip()
-            #print(f"Instruction: {instruction}")
+            
             embedding = self.llm.get_embedding(instruction)
             return PromptNode(name, instruction, embedding=embedding, innovation_number=_get_next_innovation_number())
-        except:
-            return PromptNode("Bridge_Step", "Process the data from the previous step and prepare it for the next.", embedding=self.llm.get_embedding(instruction))
-
+            
+        except Exception as e:
+            # print(f"Bridge Parsing Failed: {e}. Using cognitive fallback.")
+            
+            # Use a domain-agnostic cognitive instruction for the fallback to maintain fitness
+            fallback_instruction = "Review the deductions made so far and explicitly map out the logical dependencies required for the next step."
+            fallback_embedding = self.llm.get_embedding(fallback_instruction)
+            
+            return PromptNode("Logical_Bridge", fallback_instruction, embedding=fallback_embedding, innovation_number=_get_next_innovation_number())
+    
     async def _split_instructions(self, original_instruction: str, original_name: str) -> tuple[str, str, str, str]:
         """
-        Forces strict splitting format.
-
+        Forces strict splitting format into two atomic cognitive steps.
         Returns: (name1, prompt1, name2, prompt2)
         """
-        #print(f"\nApplying split mutation to instruction:\n {original_instruction}\n")
-        prompt = f"""Task: Split the Original Instruction into two sequential, atomic steps (Part 1 then Part 2).
-Format:
-1. Name: <name> | Instr: <instruction>
-2. Name: <name> | Instr: <instruction>
+        prompt = f"""System Directive: You are an abstract cognitive routing engine. Your goal is to construct generalized reasoning pathways.
+
+Task: Sequential Logic Split.
+Split the Original Instruction into two sequential, atomic cognitive steps (Part 1 then Part 2) that together achieve the exact same goal.
+
+Constraint: You must output exactly TWO steps using the strict format `1. Name: <name> | Instr: <instruction>`. 
+CRITICAL: If the Original Instruction contains a strict output format or grammatical trap (e.g., asking for a single word), you MUST place that exact formatting constraint in the instruction for Step 2. Do not let Step 1 generate the final answer.
 
 ### Examples
 
-Original Name: Mean Computation
-Original Instr: Extract the 'price' column and calculate the mean value.
-1. Name: Extract Column | Instr: Select the 'price' column from the dataset.
-2. Name: Calculate Mean | Instr: Compute the arithmetic average of the selected values.
+Original Name: Synthesize and Answer
+Original Instr: Trace the lineage from Person A to B and output the exact kinship term.
+1. Name: Trace Lineage | Instr: Map the step-by-step relational lineage from Person A to Person B based on the text.
+2. Name: Output Kinship | Instr: Based on the traced lineage, state only the exact kinship term that defines their connection.
 
-Original Name: Summarize
-Original Instr: Read the text and produce a concise summary.
-1. Name: Read Text | Instr: Parse the input text to understand the main points.
-2. Name: Write Summary | Instr: Generate a concise summary based on the parsed text.
+Original Name: Isolate and Deduce
+Original Instr: Discard irrelevant facts and logically deduce the hidden connection.
+1. Name: Isolate Facts | Instr: Review the text and explicitly discard all irrelevant statements, keeping only the core facts.
+2. Name: Deduce Connection | Instr: Use the isolated facts to logically deduce the final hidden connection between the subjects.
 
 ### Current Task
 Original Name: {original_name}
@@ -665,30 +766,34 @@ Original Instr: {original_instruction}
 """
         primer = "1. Name:"
         
-        response: str = await self.llm.generate_text(prompt, max_tokens=512, temperature=0.2, primer=primer)
-        #print(f"Split Instructions:\n{response}\n\n")
+        response: str = await self.llm.generate_text(prompt, temperature=MUTATIONS_TEMPERATURE, primer=primer)
         
         try:
-            # Parsing logic for "1. Name: ... | Instr: ..."
             full_text = "1. Name:" + response
-            lines = full_text.splitlines()
+            
+            # Clean empty lines to prevent IndexError if the model adds newlines
+            lines = [l.strip() for l in full_text.splitlines() if l.strip()]
             
             # Extract Line 1
             part1 = lines[0].split("| Instr:")
             n1 = part1[0].replace("1. Name:", "").strip()
             i1 = part1[1].strip()
             
-            # Extract Line 2 (Find the line starting with "2.")
-            line2 = next(l for l in lines if l.strip().startswith("2."))
+            # Extract Line 2 (Find the first line starting with "2.")
+            line2 = next(l for l in lines if l.startswith("2."))
             part2 = line2.split("| Instr:")
             n2 = part2[0].replace("2. Name:", "").strip()
             i2 = part2[1].strip()
-
-            # print(f"Name 1: {n1}")
-            # print(f"Instruction 1: {i1}")
-            # print(f"Name 2: {n2}")
-            # print(f"Instruction 2: {i2}")   
             
             return n1, i1, n2, i2
-        except:
-            return original_name, original_instruction, "Refine results", "Refine and improve results"
+            
+        except Exception as e:
+            # print(f"Split Parsing Failed: {e}. Falling back to safe split.")
+            
+            # SAFE FALLBACK INVERSION: 
+            # Node 1 becomes a silent preparation step.
+            # Node 2 retains the original instruction to preserve the terminal trap.
+            prep_name = f"Prepare_{original_name.replace(' ', '_')}"
+            prep_instruction = "Analyze the provided context and mentally map out the entities involved before proceeding to the final task."
+            
+            return prep_name, prep_instruction, original_name, original_instruction

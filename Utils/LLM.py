@@ -38,7 +38,12 @@ class LLM:
         """
         return self.embedder.encode(text).tolist()
 
-    async def generate_text(self, user_prompt:str, temperature:float, max_tokens=512, stop=None) -> str:
+    async def generate_text(self, user_prompt:str, temperature:float, primer = None, max_tokens=512, stop=None) -> str:
+        
+        #0. If the user provided a primer, prepend it to the prompt (Gemma specific)
+        if primer:
+            user_prompt = f"{user_prompt}<start_of_turn>model\n{primer}"
+        
         # 1. Format the prompt (Gemma specific)        
         stop_tokens = ["<end_of_turn>"]
         if stop:

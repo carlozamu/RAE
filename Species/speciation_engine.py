@@ -33,7 +33,7 @@ class SpeciationEngine:
         self.compatibility_threshold = 2.0 # Starting point, will be dynamically tuned
         self.species_id_counter = 0
 
-    async def step_generation(self, evaluated_population: List[AgentGenome]) -> List[AgentGenome]:
+    async def step_generation(self, evaluated_population: List[AgentGenome], generation: int) -> List[AgentGenome]:
         """
         Takes the current evaluated population, processes speciation, allocates resources,
         and returns the completely new, unevaluated next generation.
@@ -81,7 +81,7 @@ class SpeciationEngine:
             target_size = species_target_sizes.get(species.id, 0)
             if target_size > 0:
                 # Delegate to the micro-layer we built previously!
-                offspring = await self.breeder.breed_next_generation(species.members, target_size)
+                offspring = await self.breeder.breed_next_generation(species.members, target_size, generation=generation)
                 next_generation_global.extend(offspring)
 
         # --- 6. PREPARE FOR NEXT GENERATION ---

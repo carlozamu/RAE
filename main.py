@@ -137,7 +137,7 @@ async def run_evolution():
         print(f"🧬 Speciating and Breeding Generation {generation_idx + 1}...")
         
         genomes_to_breed = [p.genome for p in evaluated_population]
-        unevaluated_next_gen_genomes = await speciation_engine.step_generation(genomes_to_breed)
+        unevaluated_next_gen_genomes = await speciation_engine.step_generation(genomes_to_breed, generation=generation_idx)
         # wrap the new genomes into Phenotypes with empty fitness for the next evaluation step
         unevaluated_next_gen: list[Phenotype] = [Phenotype(genome=g, llm_client=llm_client) for g in unevaluated_next_gen_genomes]
         

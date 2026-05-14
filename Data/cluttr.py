@@ -197,12 +197,8 @@ Possible answers:
 
 Task: State only the one kinship word (from the posible answers) that describes the family relationship between {name2} and {name1}. {name2} is {name1}'s?"""
 
-        
-        # The primer traps the generation
-        #primer = f"Answer: {name2} is {name1}'s "
-        primer = f""
 
-        baseline_prompt = f"<start_of_turn>user\n{prompt}\n<end_of_turn>\n<start_of_turn>model\n{primer}"
+        baseline_prompt = f"<start_of_turn>user\n{prompt}\n<end_of_turn>\n"
         
         return baseline_prompt
     

@@ -28,7 +28,8 @@ class SpeciesBreeder:
 
     async def breed_next_generation(self, 
                                     current_species_members: List[AgentGenome], 
-                                    target_size: int) -> List[AgentGenome]:
+                                    target_size: int,
+                                    generation:int) -> List[AgentGenome]:
         """
         Creates the next generation for a specific species.
         """
@@ -67,7 +68,7 @@ class SpeciesBreeder:
             child = Crossover.create_offspring(p1, p2)
             
             # Mutate
-            child = await self.mutator.mutate(child) 
+            child = await self.mutator.mutate(child, current_generation=generation) 
             
             # Reset the child's fitness so it must be evaluated in the macro loop
             child.fitness = 0.0 
