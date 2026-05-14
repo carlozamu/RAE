@@ -15,6 +15,7 @@ from Utils.LLM import LLM
 # --- Configuration ---
 MODEL_NAME = "google/gemma-3-1b-it" 
 BASE_URL = "http://localhost:8000"  
+TOTAL_PROBLEMS = 500
 MAX_CONCURRENT_REQUESTS = 50 
 
 def force_cleanup():
@@ -30,10 +31,10 @@ async def _evaluate_single_problem(idx, problem, dataset_manager, llm_client, fi
     async with semaphore:
         story = problem['metadata']['story']
         query = problem['metadata']['query']
-        prompt = dataset_manager.build_prompt_clutrr_baseline(story, query)
+        prompt = dataset_manager.build_prompt_clutrr_baseline_no_primer(story, query)
 
         try:
-            generated_ans = await llm_client.generate_text(user_prompt=prompt, temperature=0.5)
+            generated_ans = await llm_client.generate_text(user_prompt=prompt)
             token_used = (len(prompt) + len(generated_ans)) // 4
         except Exception as e:
             print(f"Error executing baseline prompt: {e}")
@@ -43,7 +44,7 @@ async def _evaluate_single_problem(idx, problem, dataset_manager, llm_client, fi
         # Clean the generated answer for word counting and logging
         clean_ans = generated_ans.strip()
         
-        # 1. Get the exact word count
+        # 1. Check if the model yapped (more than 1 word)
         answer_length = len(clean_ans.split())
 
         expected = problem['answer']
@@ -54,6 +55,10 @@ async def _evaluate_single_problem(idx, problem, dataset_manager, llm_client, fi
             is_correct = (mapped_response == expected)
         else:
             is_correct = (clean_ans.lower() == expected.strip().lower())
+
+        # 2. Print the tuple every 50 iterations
+        if idx % 50 == 0:
+            print(f"[Problem {idx:03d}] Expected: '{expected}' | Generated: '{clean_ans}' | Mapped: '{mapped_response if problem.get('task_type') == 'cluttr' else 'N/A'}'")
 
         score = fitness.calculator.compute_score(
             is_correct=is_correct,
@@ -70,82 +75,38 @@ async def run_baseline():
     dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
     fitness = Fitness(llm=llm_client)
     
-    # 2. Fetch the ENTIRE dataset
-    print("Fetching the COMPLETE dataset for stratified baseline...")
-    initial_problems_pool = dataset_manager.get_entire_dataset_stratified()
+    print(f"Fetching {TOTAL_PROBLEMS} problems from dataset...")
+    initial_problems_pool = dataset_manager.get_batch(batch_size=TOTAL_PROBLEMS)
 
     print(f"Starting Baseline evaluation with {MAX_CONCURRENT_REQUESTS} concurrent workers...\n")
     
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
     
+    # Pass 'idx' using enumerate
     tasks = [
         _evaluate_single_problem(idx, problem, dataset_manager, llm_client, fitness, semaphore)
         for idx, problem in enumerate(initial_problems_pool)
     ]
     
-    # 3. Fire tasks
     results = await asyncio.gather(*tasks)
 
-    # 4. Stratified Aggregation & Word Count Tracking
-    stratified_stats = {}
-    total_correct = 0
-    total_score = 0.0
-    
-    # NEW: Variables for tracking word counts
-    total_1_word = 0
-    total_2_word = 0
-    total_words_generated = 0
-
-    for idx, (is_correct, score, answer_length) in enumerate(results):
-        length = initial_problems_pool[idx]['metadata']['reasoning_length']
-        
-        # Update Word Count Metrics
-        total_words_generated += answer_length
-        if answer_length == 1:
-            total_1_word += 1
-        elif answer_length == 2:
-            total_2_word += 1
-        
-        # Update Stratified Metrics
-        if length not in stratified_stats:
-            stratified_stats[length] = {"correct": 0, "total": 0}
-            
-        stratified_stats[length]["total"] += 1
-        total_score += score
-        
-        if is_correct:
-            stratified_stats[length]["correct"] += 1
-            total_correct += 1
+    # 3. Aggregate all the results
+    correct_count = sum(1 for res in results if res[0])
+    total_score = sum(res[1] for res in results)
+    average_answer_length = sum(res[2] for res in results) / len(initial_problems_pool) if initial_problems_pool else 0
 
     execution_time = time.time() - start_time
 
-    # 5. Output the Stratified Report
-    total_problems = len(initial_problems_pool)
-    
-    print("\n" + "="*50)
-    print("🎯 STRATIFIED BASELINE REPORT")
-    print("="*50)
+    print("\n--- Evaluation Finished ---")
     print(f"Execution Time: {execution_time:.2f} seconds")
-    print(f"Total Problems Evaluated: {total_problems}\n")
+    print(f"Correct Answers: {correct_count}/{len(initial_problems_pool)}")
+    print(f"Average Answer Length: {average_answer_length:.2f}")
 
-    # Sort the dictionary by reasoning length to print in order
-    for length in sorted(stratified_stats.keys()):
-        stats = stratified_stats[length]
-        acc = (stats["correct"] / stats["total"]) * 100 if stats["total"] > 0 else 0
-        print(f"Level {length:02d} Hops: Accuracy {acc:05.2f}% ({stats['correct']}/{stats['total']})")
-
-    print("-" * 50)
-    overall_accuracy = (total_correct / total_problems) * 100
-    overall_fitness = total_score / total_problems
-    average_length = total_words_generated / total_problems
+    avg_score = total_score / len(initial_problems_pool)
+    accuracy = (correct_count / len(initial_problems_pool)) * 100
     
-    print(f"Overall Dataset Accuracy: {overall_accuracy:.2f}%")
-    print(f"Overall Average Fitness:  {overall_fitness:.4f}")
-    print("-" * 50)
-    print(f"Average Answer Length:    {average_length:.2f} words")
-    print(f"Exactly 1-Word Answers:   {total_1_word} ({(total_1_word/total_problems)*100:.1f}%)")
-    print(f"Exactly 2-Word Answers:   {total_2_word} ({(total_2_word/total_problems)*100:.1f}%)")
-    print("=" * 50)
+    print(f"Baseline Average Fitness Score: {avg_score:.4f}")
+    print(f"Baseline Accuracy: {accuracy:.2f}%")
 
 if __name__ == "__main__":
     try:

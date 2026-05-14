@@ -78,6 +78,86 @@ class CLUTTRManager:
             
         return batch
     
+    def get_full_split(self, split: str = "test") -> list[dict]:
+        """
+        Returns every single problem in the specified dataset split.
+        Used for infallible baselines and final evolutionary evaluation.
+        """
+        if self.dataset is None or split not in self.dataset:
+            print(f"Dataset not valid or split '{split}' not found.")
+            return []
+        
+        data_split = self.dataset[split]
+        total_len = len(data_split)
+        print(f"Loading all {total_len} problems from the '{split}' split...")
+        
+        batch = []
+        for idx in range(total_len):
+            item = data_split[idx]
+            story = item["story"]
+            query = item["query"]
+            target = item["target_text"]
+            
+            # Using your highly optimized zero-shot list prompt
+            prompt = self.build_prompt_clutrr_baseline_no_primer(story, query)
+            
+            batch.append({
+                "question": prompt,
+                "answer": target,
+                "task_type": "cluttr",
+                "metadata": {
+                    "story": story,
+                    "query": query,
+                    "id": item.get("id", None)
+                }
+            })
+            
+        return batch
+
+    def get_entire_dataset_stratified(self) -> list[dict]:
+        """
+        Returns every single problem across ALL splits (train, validation, test).
+        Extracts the reasoning hop length from 'task_name' for stratified analysis.
+        """
+        if self.dataset is None:
+            print("Dataset not loaded.")
+            return []
+        
+        batch = []
+        # Iterate over train, test, and validation (if it exists)
+        for split_name in self.dataset.keys():
+            data_split = self.dataset[split_name]
+            
+            for item in data_split:
+                story = item["story"]
+                query = item["query"]
+                target = item["target_text"]
+                task_name = item.get("task_name", "")
+                
+                # Extract the reasoning length (num2) from "task_[num1].[num2]"
+                try:
+                    reasoning_length = int(task_name.split(".")[1])
+                except (IndexError, ValueError):
+                    reasoning_length = 0 # Fallback if data is malformed
+                
+                prompt = self.build_prompt_clutrr_baseline_no_primer(story, query)
+                
+                batch.append({
+                    "question": prompt,
+                    "answer": target,
+                    "task_type": "cluttr",
+                    "metadata": {
+                        "story": story,
+                        "query": query,
+                        "task_name": task_name,
+                        "reasoning_length": reasoning_length,
+                        "split_origin": split_name
+                    }
+                })
+                
+        print(f"Loaded a total of {len(batch)} problems across all splits.")
+        return batch
+    
     @staticmethod
     def build_prompt_clutrr_baseline(story: str, query: str) -> tuple[str, str]:
         clean_query = query.replace("(", "").replace(")", "").replace("'", "")
@@ -91,15 +171,60 @@ class CLUTTRManager:
         prompt = f"""Story:
 {story}
 
-Task: State {name2}'s exact family relationship to {name1}."""
+Possible answers:
+- aunt
+- son-in-law
+- grandfather
+- brother
+- sister
+- father
+- mother
+- grandmother
+- uncle
+- daughter-in-law
+- grandson
+- granddaughter
+- father-in-law
+- mother-in-law
+- nephew
+- son
+- daughter
+- niece
+- husband
+- wife
+- sister-in-law
+
+
+Task: State only the one kinship word (from the posible answers) that describes the family relationship between {name2} and {name1}. {name2} is {name1}'s?"""
+
         
         # The primer traps the generation
-        primer = f"Answer: {name2} is {name1}'s "
+        #primer = f"Answer: {name2} is {name1}'s "
+        primer = f""
 
         baseline_prompt = f"<start_of_turn>user\n{prompt}\n<end_of_turn>\n<start_of_turn>model\n{primer}"
         
         return baseline_prompt
     
+    @staticmethod
+    def build_prompt_clutrr_baseline_no_primer(story: str, query: str) -> tuple[str, str]:
+        clean_query = query.replace("(", "").replace(")", "").replace("'", "")
+        try:
+            name1, name2 = [name.strip() for name in clean_query.split(',')]
+        except ValueError:
+            name1, name2 = "Person A", "Person B"
+
+        # OPTIMIZATION: Naming the entities directly in the task line
+        # to maximize attention gravity right before generation.
+        prompt = f"""Story:
+{story}
+
+Task: Understand and state the one kinship word that describes the family relationship between {name2} and {name1}. {name2} is {name1}'s?"""
+
+        baseline_prompt = f"<start_of_turn>user\n{prompt}\n<end_of_turn>\n"
+        
+        return baseline_prompt
+
     @staticmethod
     def build_prompt_clutrr(story: str, query: str) -> tuple[str, str]:
         clean_query = query.replace("(", "").replace(")", "").replace("'", "")

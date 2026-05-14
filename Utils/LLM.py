@@ -15,6 +15,8 @@ from sentence_transformers import SentenceTransformer
 # Singleton instance holder
 _EMBEDDER_INSTANCE = None
 
+
+
 class LLM:
     def __init__(self, model_name="google/gemma-3-1b-it", base_url="http://localhost:8000"):
         self.base_url = base_url
@@ -36,7 +38,7 @@ class LLM:
         """
         return self.embedder.encode(text).tolist()
 
-    async def generate_text(self, user_prompt:str, max_tokens=512, stop=None, temperature=0.2) -> str:
+    async def generate_text(self, user_prompt:str, temperature:float, max_tokens=512, stop=None) -> str:
         # 1. Format the prompt (Gemma specific)        
         stop_tokens = ["<end_of_turn>"]
         if stop:
