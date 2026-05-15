@@ -6,9 +6,9 @@ from Genome.agent_genome import AgentGenome
 
 class Species:
     # Asymptotic Distance Coefficients
-    c_nodes = 0.15   # Penalty per unmatched node
-    c_edges = 0.15   # Penalty per unmatched connection
-    c_weight = 1.0   # Penalty for semantic drift (Cosine distance)
+    c_nodes = 0.1   # Penalty per unmatched node
+    c_edges = 0.1   # Penalty per unmatched connection
+    c_weight = 0.5   # Penalty for semantic drift (Cosine distance)
 
     def __init__(self, representative: AgentGenome, species_id: int):
         self.id = species_id
@@ -51,29 +51,40 @@ class Species:
     def compatibility_distance(self, candidate: AgentGenome) -> float:
         """
         Calculates the distance using a Bounded Asymptotic Curve (tanh).
-        Returns a strict value between 0.0 (Identical) and 10.0 (Alien).
+        Includes Dynamic Semantic Scaling for smaller graphs.
         """
-        # 1. Absolute Topological Node Difference (Symmetric Difference)
+        # 1. Absolute Topological Node Difference
         rep_nodes = set(self.representative.nodes.keys())
         cand_nodes = set(candidate.nodes.keys())
         unmatched_nodes_count = len(rep_nodes.symmetric_difference(cand_nodes))
         
-        # 2. Absolute Topological Edge Difference (Symmetric Difference)
+        # Determine how many nodes they actually share
+        shared_nodes_count = len(rep_nodes.intersection(cand_nodes))
+        
+        # 2. Absolute Topological Edge Difference
         rep_edges = set(e for e, conn in self.representative.connections.items() if conn.enabled)
         cand_edges = set(e for e, conn in candidate.connections.items() if conn.enabled)
         unmatched_edges_count = len(rep_edges.symmetric_difference(cand_edges))
         
-        # 3. Average Semantic Difference (for nodes that share the same innovation ID)
+        # 3. Average Semantic Difference (for shared nodes)
         avg_weight_diff = self._compute_average_weight_difference(self.representative, candidate)
 
-        # 4. Compute Linear Raw Distance
+        # 4. Dynamic Semantic Scaling
+        # Scales the penalty from 0.2 (if only 1 shared node) up to 1.0 (if 5+ shared nodes)
+        # This prevents a single rephrased node from blowing up the distance of a tiny graph.
+        if shared_nodes_count > 0:
+            semantic_scale = min(1.0, shared_nodes_count / 5.0)
+        else:
+            semantic_scale = 0.0
+
+        # 5. Compute Linear Raw Distance
         raw_distance = (
             (self.c_nodes * unmatched_nodes_count) +
             (self.c_edges * unmatched_edges_count) +
-            (self.c_weight * avg_weight_diff)
+            (self.c_weight * semantic_scale * avg_weight_diff) # Apply the scale here
         )
         
-        # 5. Apply Asymptotic Squashing (Tanh) mapped to 0.0 -> 10.0
+        # 6. Apply Asymptotic Squashing (Tanh) mapped to 0.0 -> 10.0
         bounded_distance = 10.0 * math.tanh(raw_distance)
         
         return bounded_distance

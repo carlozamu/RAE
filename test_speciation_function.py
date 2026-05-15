@@ -16,6 +16,15 @@ genomes_data = {
         },
         "connections": []
     },
+    "Genome_AA_1_Node": {
+        "description": "Genome AA - 1 Node (BaselineBeta)",
+        "start_node": "n1",
+        "end_node": "n1",
+        "nodes": {
+            "n1": {"name": "Baseline", "instruction": "Now write the correct answer to the problem."}
+        },
+        "connections": []
+    },
     "Genome_B_3_Nodes": {
         "description": "Genome B - 3 Nodes (Sequential Chain of Thought)",
         "start_node": "n1",
@@ -43,6 +52,23 @@ genomes_data = {
             {"in": "n1", "out": "n2"},
             {"in": "n1", "out": "n3"},
             {"in": "n2", "out": "n3"}
+        ]
+    },
+    "Genome_CC_4_Nodes": {
+        "description": "Genome C - 4 Nodes",
+        "start_node": "n1",
+        "end_node": "n4",
+        "nodes": {
+            "n1": {"name": "Work Backwards", "instruction": "Start with the final target person and work backward, listing their immediate relatives mentioned in the text."},
+            "n2": {"name": "Falsification Process", "instruction": "Cross-reference this list with the starting person, explicitly eliminating logically impossible family ties."},
+            "n3": {"name": "Review Reasoning", "instruction": "Evaluate the logical consistency of the information discovered until now and summarize the identified family relationships."},
+            "n4": {"name": "Inquisitive Baseline", "instruction": "What specific kinship term defines their connection? Output only that single word."}
+        },
+        "connections": [
+            {"in": "n1", "out": "n2"},
+            {"in": "n1", "out": "n3"},
+            {"in": "n2", "out": "n3"},
+            {"in": "n3", "out": "n4"}
         ]
     },
     "Genome_D_5_Nodes": {
@@ -93,36 +119,64 @@ genomes_data = {
 target_distances = {
     "Genome_A_1_Node": {
         "Genome_A_1_Node": 0.0,
+        "Genome_AA_1_Node": 0.5,
         "Genome_B_3_Nodes": 4.0,  # 1 node vs 3 sequential nodes
         "Genome_C_3_Nodes": 4.0,  # 1 node vs 3 sequential nodes
+        "Genome_CC_4_Nodes": 6.5,  # 1 node vs 4 node DAG
         "Genome_D_5_Nodes": 8.0,  # 1 node vs 5 node DAG
+        "Genome_E_7_Nodes": 9.8   # 1 node vs 7 node complex DAG (Max distance)
+    },
+    "Genome_AA_1_Node": {
+        "Genome_A_1_Node": 0.5,
+        "Genome_AA_1_Node": 0.0,
+        "Genome_B_3_Nodes": 4.0,  # 1 node vs 3 sequential nodes
+        "Genome_C_3_Nodes": 4.0,  # 1 node vs 3 sequential nodes
+        "Genome_CC_4_Nodes": 6.5,  # 1 node vs 4 node DAG
+        "Genome_D_5_Nodes": 8.0,  # 1 node
         "Genome_E_7_Nodes": 9.8   # 1 node vs 7 node complex DAG (Max distance)
     },
     "Genome_B_3_Nodes": {
         "Genome_A_1_Node": 4.0,
+        "Genome_AA_1_Node": 4.0,
         "Genome_B_3_Nodes": 0.0,
         "Genome_C_3_Nodes": 1.5,  # Same exact topology, purely tests embedding/cognitive distance
+        "Genome_CC_4_Nodes": 6.5,  # Same exact topology, purely tests embedding/cognitive distance
         "Genome_D_5_Nodes": 6.0,  # 3 seq nodes vs 5 branched nodes
         "Genome_E_7_Nodes": 8.5   # 3 seq nodes vs 7 branched nodes
     },
     "Genome_C_3_Nodes": {
         "Genome_A_1_Node": 4.0,
+        "Genome_AA_1_Node": 4.0,
         "Genome_B_3_Nodes": 1.5,  # Same exact topology, purely tests embedding/cognitive distance
         "Genome_C_3_Nodes": 0.0,
+        "Genome_CC_4_Nodes": 3.0,  # Same exact topology, purely tests embedding/cognitive distance
         "Genome_D_5_Nodes": 6.0,  # 3 seq nodes vs 5 branched nodes
         "Genome_E_7_Nodes": 8.5   # 3 seq nodes vs 7 branched nodes
     },
+    "Genome_CC_4_Nodes": {
+        "Genome_A_1_Node": 6.5,
+        "Genome_AA_1_Node": 6.5,
+        "Genome_B_3_Nodes": 3.0,  # 4 node
+        "Genome_C_3_Nodes": 2.5,  # 4 node vs 3 node (both are sequential chains, but one has an extra step)
+        "Genome_CC_4_Nodes": 0.0,
+        "Genome_D_5_Nodes": 3.0,  # 4 node vs 5 node (both are sequential chains, but one has an extra step)
+        "Genome_E_7_Nodes": 6.5   # 4 node vs 7 node complex DAG
+    },
     "Genome_D_5_Nodes": {
         "Genome_A_1_Node": 8.0,
+        "Genome_AA_1_Node": 8.0,
         "Genome_B_3_Nodes": 6.0,
         "Genome_C_3_Nodes": 6.0,
+        "Genome_CC_4_Nodes": 3.0,
         "Genome_D_5_Nodes": 0.0,
         "Genome_E_7_Nodes": 5.0   # 5 nodes vs 7 nodes (both are branched DAGs, closer to each other than to A)
     },
     "Genome_E_7_Nodes": {
         "Genome_A_1_Node": 9.8,
+        "Genome_AA_1_Node": 9.8,
         "Genome_B_3_Nodes": 8.5,
         "Genome_C_3_Nodes": 8.5,
+        "Genome_CC_4_Nodes": 6.5,
         "Genome_D_5_Nodes": 5.0,
         "Genome_E_7_Nodes": 0.0
     }
