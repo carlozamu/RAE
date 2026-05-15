@@ -1,14 +1,14 @@
 import numpy as np
 import random
+import math
 from typing import List
 from Genome.agent_genome import AgentGenome
 
 class Species:
-    # NEAT Distance Coefficients
-    c1 = 1.0  # Excess nodes weight
-    c2 = 1.0  # Disjoint nodes weight
-    c3 = 1.0  # Edge count difference weight
-    c4 = 1.0  # Semantic Prompt difference weight
+    # Asymptotic Distance Coefficients
+    c_nodes = 0.15   # Penalty per unmatched node
+    c_edges = 0.15   # Penalty per unmatched connection
+    c_weight = 1.0   # Penalty for semantic drift (Cosine distance)
 
     def __init__(self, representative: AgentGenome, species_id: int):
         self.id = species_id
@@ -33,7 +33,7 @@ class Species:
         """Picks a random member from this generation to represent the next."""
         if self.members:
             self.representative = random.choice(self.members)
-        self.members = [] # Clear the bucket for the new generation
+        self.members = [] 
         self.age += 1
 
     def update_stagnation(self):
@@ -50,76 +50,43 @@ class Species:
 
     def compatibility_distance(self, candidate: AgentGenome) -> float:
         """
-        Calculates the topological and semantic distance between a candidate 
-        and this species' representative using the NEAT formula.
+        Calculates the distance using a Bounded Asymptotic Curve (tanh).
+        Returns a strict value between 0.0 (Identical) and 10.0 (Alien).
         """
-        excess_genes = self._count_excess_genes(self.representative, candidate)
-        disjoint_genes = self._count_disjoint_genes(self.representative, candidate)
+        # 1. Absolute Topological Node Difference (Symmetric Difference)
+        rep_nodes = set(self.representative.nodes.keys())
+        cand_nodes = set(candidate.nodes.keys())
+        unmatched_nodes_count = len(rep_nodes.symmetric_difference(cand_nodes))
         
-        rep_active_edges = [e for e in self.representative.connections.values() if e.enabled]
-        cand_active_edges = [e for e in candidate.connections.values() if e.enabled]
+        # 2. Absolute Topological Edge Difference (Symmetric Difference)
+        rep_edges = set(e for e, conn in self.representative.connections.items() if conn.enabled)
+        cand_edges = set(e for e, conn in candidate.connections.items() if conn.enabled)
+        unmatched_edges_count = len(rep_edges.symmetric_difference(cand_edges))
         
-        max_nodes = max(len(self.representative.nodes), len(candidate.nodes), 1)
-        max_edges = max(len(rep_active_edges), len(cand_active_edges), 1)
-        
-        different_edges = self._count_different_edges(self.representative, candidate)
+        # 3. Average Semantic Difference (for nodes that share the same innovation ID)
         avg_weight_diff = self._compute_average_weight_difference(self.representative, candidate)
 
-        distance = (
-            (self.c1 * excess_genes / max_nodes) +
-            (self.c2 * disjoint_genes / max_nodes) +
-            (self.c3 * different_edges / max_edges) +
-            (self.c4 * avg_weight_diff)
+        # 4. Compute Linear Raw Distance
+        raw_distance = (
+            (self.c_nodes * unmatched_nodes_count) +
+            (self.c_edges * unmatched_edges_count) +
+            (self.c_weight * avg_weight_diff)
         )
-        return distance
-    
-    def _count_excess_genes(self, ind1: AgentGenome, ind2: AgentGenome) -> int:
-        member_genes = list(ind1.nodes.keys())
-        candidate_genes = list(ind2.nodes.keys())
-        member_newest_node_gene = max(member_genes, default=0)
-        candidate_newest_node_gene = max(candidate_genes, default=0)
-        min_newest_gene = min(int(member_newest_node_gene), int(candidate_newest_node_gene))
-        excess_genes = 0
-        total_genes = sorted(set(member_genes + candidate_genes))
-        for gene in total_genes:
-            if int(gene) > min_newest_gene:
-                if not (gene in member_genes and gene in candidate_genes):
-                    excess_genes += 1
-        return excess_genes
-
-    def _count_disjoint_genes(self, ind1: AgentGenome, ind2: AgentGenome) -> int:
-        member_genes = list(ind1.nodes.keys())
-        candidate_genes = list(ind2.nodes.keys())
-        member_newest_node_gene = max(member_genes, default=0)
-        candidate_newest_node_gene = max(candidate_genes, default=0)
-        min_newest_gene = min(int(member_newest_node_gene), int(candidate_newest_node_gene))
-        disjoint_genes = 0
-        different_genes = list(set(member_genes).difference(set(candidate_genes)).union(set(candidate_genes).difference(set(member_genes))))
-        for gene in different_genes:
-            if int(gene) < min_newest_gene:
-                disjoint_genes += 1
-        return disjoint_genes
-    
-    def _count_different_edges(self, ind1: AgentGenome, ind2: AgentGenome) -> int:
-        ind1_edges = set([edge for edge in ind1.connections.keys() if ind1.connections[edge].enabled])
-        ind2_edges = set([edge for edge in ind2.connections.keys() if ind2.connections[edge].enabled])
-        unique_to_1 = ind1_edges.difference(ind2_edges)
-        unique_to_2 = ind2_edges.difference(ind1_edges)
-        total_diff = len(unique_to_1) + len(unique_to_2)
         
-        return total_diff
+        # 5. Apply Asymptotic Squashing (Tanh) mapped to 0.0 -> 10.0
+        bounded_distance = 10.0 * math.tanh(raw_distance)
+        
+        return bounded_distance
     
     def _compute_average_weight_difference(self, ind1: AgentGenome, ind2: AgentGenome) -> float:
         """
         Calculates the average semantic distance (Cosine Distance) between matching nodes.
-        Used for the 'Weight Difference' component of the NEAT compatibility formula.
+        Value ranges from 0.0 (identical thoughts) to 1.0 (opposite thoughts).
         """
-        # 1. Efficiently find common nodes (Intersection)
-        # Set operations are O(min(len(s1), len(s2))) vs O(N) loop
         common_ids = set(ind1.nodes.keys()) & set(ind2.nodes.keys())
         
         if not common_ids:
-            return 0.0
+            return 0.0 # Topology penalty will handle entirely disjoint graphs
 
         total_distance = 0.0
         valid_comparisons = 0
@@ -127,23 +94,21 @@ class Species:
         for node_id in common_ids:
             emb1 = ind1.nodes[node_id].embedding
             emb2 = ind2.nodes[node_id].embedding
+            
             if not emb1 or not emb2:
                 continue
 
-            # 2. Convert to Numpy
             v1 = np.array(emb1)
             v2 = np.array(emb2)
 
-            # 3. Compute Cosine Distance (1 - Cosine Similarity), normalized to [0, 1]
-            # Formula: (1 - (A . B) / (||A|| * ||B||)) / 2
-            # This returns 0.0 for identical vectors, and 1.0 for opposite vectors.
             norm1 = np.linalg.norm(v1)
             norm2 = np.linalg.norm(v2)
             
             if norm1 == 0 or norm2 == 0:
-                dist = 0.5 # Neutral penalty if a vector is null/zero
+                dist = 0.5 
             else:
                 similarity = np.dot(v1, v2) / (norm1 * norm2)
+                # Ensure float inaccuracies don't push similarity outside [-1, 1]
                 dist = (1.0 - max(-1.0, min(1.0, similarity))) / 2.0
             
             total_distance += dist

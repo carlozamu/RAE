@@ -61,12 +61,10 @@ class CLUTTRManager:
             query = item["query"]
             target = item["target_text"]
             
-            sys_instr, prompt, primer = self.build_prompt_clutrr(story, query)
+            prompt = self.build_prompt_clutrr(story, query)
             
             batch.append({
-                "system_instructions": sys_instr,
                 "question": prompt,
-                "primer": primer,
                 "answer": target,
                 "task_type": "cluttr",
                 "metadata": {
@@ -159,7 +157,7 @@ class CLUTTRManager:
         return batch
     
     @staticmethod
-    def build_prompt_clutrr_baseline(story: str, query: str) -> tuple[str, str]:
+    def build_prompt_clutrr_baseline(story: str, query: str) -> str:
         clean_query = query.replace("(", "").replace(")", "").replace("'", "")
         try:
             name1, name2 = [name.strip() for name in clean_query.split(',')]
@@ -203,7 +201,7 @@ Task: State only the one kinship word (from the posible answers) that describes 
         return baseline_prompt
     
     @staticmethod
-    def build_prompt_clutrr_baseline_no_primer(story: str, query: str) -> tuple[str, str]:
+    def build_prompt_clutrr(story: str, query: str) -> str:
         clean_query = query.replace("(", "").replace(")", "").replace("'", "")
         try:
             name1, name2 = [name.strip() for name in clean_query.split(',')]
@@ -215,33 +213,32 @@ Task: State only the one kinship word (from the posible answers) that describes 
         prompt = f"""Story:
 {story}
 
-Task: Understand and state the one kinship word that describes the family relationship between {name2} and {name1}. {name2} is {name1}'s?"""
+Possible answers:
+- aunt
+- son-in-law
+- grandfather
+- brother
+- sister
+- father
+- mother
+- grandmother
+- uncle
+- daughter-in-law
+- grandson
+- granddaughter
+- father-in-law
+- mother-in-law
+- nephew
+- son
+- daughter
+- niece
+- husband
+- wife
+- sister-in-law
 
-        baseline_prompt = f"<start_of_turn>user\n{prompt}\n<end_of_turn>\n"
+Understand the family relationship between {name2} and {name1}, and to describe it through only one kinship word from the posible answers, to correctly answer the question: {name2} is {name1}'s?"""
         
-        return baseline_prompt
-
-    @staticmethod
-    def build_prompt_clutrr(story: str, query: str) -> tuple[str, str]:
-        clean_query = query.replace("(", "").replace(")", "").replace("'", "")
-        try:
-            name1, name2 = [name.strip() for name in clean_query.split(',')]
-        except ValueError:
-            name1, name2 = "Person A", "Person B"
-
-        system_instructions = "You are a logical reasoning AI."
-
-        # OPTIMIZATION: Naming the entities directly in the task line
-        # to maximize attention gravity right before generation.
-        gen_zero_prompt = f"""Story:
-{story}
-
-Task: Trace the family lineage step-by-step to find the exact kinship noun connecting {name2} to {name1}."""
-        
-        # The primer traps the generation
-        primer = f"Answer: {name2} is {name1}'s "
-        
-        return system_instructions, gen_zero_prompt, primer
+        return prompt
 
     @classmethod
     def normalize_text_simple(cls, text: str) -> str:

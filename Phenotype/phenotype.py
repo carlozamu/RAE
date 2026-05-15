@@ -9,7 +9,7 @@ class Phenotype:
         self.genome = genome
         self.llm = llm_client
 
-    async def run(self, problem: str, system_instructions:str = "", last_primer: str = "") -> Dict[str, Any]:
+    async def run(self, problem: str) -> Dict[str, Any]:
         # 1. Get Plan
         # execution_order is [(NodeObject, [Parent_IDs]), ...]
         execution_order = self.genome.get_execution_order() 
@@ -25,7 +25,7 @@ class Phenotype:
         for node, parent_ids in execution_order:
             
             # A. Build Context
-            context_parts = [f"<start_of_turn>system\n{system_instructions}\n {problem}<end_of_turn>\n"]
+            context_parts = [f"<start_of_turn>system\n{problem}<end_of_turn>\n"]
             
             if parent_ids:
                 for pid in parent_ids:
@@ -35,16 +35,19 @@ class Phenotype:
                         parent_turn = f"<start_of_turn>user\n{parent_instructions}<end_of_turn>\n<start_of_turn>model\n{parent_answer}<end_of_turn>\n"
                         context_parts.append(parent_turn)
             
-            full_context = "".join(context_parts)
-
+            
+            
             # Chek if it is the last node
             if node.id == self.genome.end_node_innovation_number:
-                final_primer = last_primer
+                final_primer = "Now state your final answer as only one single single kinship word from the original possible answers."
+                context_parts.append(f"<start_of_turn>user\n{node.instruction}. {final_primer}<end_of_turn>\n")
             else:
-                final_primer = ""
+                context_parts.append(f"<start_of_turn>user\n{node.instruction}<end_of_turn>\n")
+
+            full_context = "".join(context_parts)
             
             # B. Execute (Transient)
-            trait = Trait(node, self.llm, primer=final_primer)
+            trait = Trait(node, self.llm)
             # Fix: renamed 'time' to 'duration' to avoid shadowing module
             in_t, out_t, duration, answer = await trait.execute(full_context)
             

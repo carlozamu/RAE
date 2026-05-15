@@ -19,7 +19,7 @@ class Fitness:
     async def _evaluate_single_problem(self, individual: Phenotype, problem: Dict) -> Tuple[float, int]:
         """Evaluates a single problem and returns (Score, Tokens_Used)."""        
         try:
-            response = await individual.run(system_instructions=problem['system_instructions'], problem=problem['question'], primer=problem['primer'])
+            response = await individual.run(problem=problem['question'])
             generated_ans = response['answer']
             stats = response['stats']
             token_used = stats.get('total_tokens', 0)

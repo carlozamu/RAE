@@ -14,7 +14,7 @@ class SpeciationEngine:
                  target_population_size: int = 40,
                  target_species_count: int = 4, # Single target for the P-Controller
                  dropoff_age: int = 10,
-                 proportioanl_step: float = 0.075
+                 proportional_step: float = 0.075
                  ):
         """
         Args:
@@ -27,7 +27,7 @@ class SpeciationEngine:
         self.target_population_size = target_population_size
         self.target_species_count = target_species_count
         self.dropoff_age = dropoff_age
-        self.proportioanl_step = proportioanl_step
+        self.proportional_step = proportional_step
 
         self.species_list: List[Species] = []
         self.compatibility_threshold = 2.0 # Starting point, will be dynamically tuned
@@ -123,7 +123,7 @@ class SpeciationEngine:
         
         # 2. Proportional gain (Kp). 
         # 0.075 means an error of 2 species results in a 0.15 threshold shift.
-        proportional_step = self.proportioanl_step 
+        proportional_step = self.proportional_step 
         
         # 3. Calculate adjustment
         adjustment = error * proportional_step
