@@ -38,11 +38,7 @@ class Phenotype:
             
             
             # Chek if it is the last node
-            if node.id == self.genome.end_node_innovation_number:
-                final_primer = "Now state your final answer as only one single single kinship word from the original possible answers."
-                context_parts.append(f"<start_of_turn>user\n{node.instruction}. {final_primer}<end_of_turn>\n")
-            else:
-                context_parts.append(f"<start_of_turn>user\n{node.instruction}<end_of_turn>\n")
+            context_parts.append(f"<start_of_turn>user\n{node.instruction}<end_of_turn>\n<start_of_turn>model\n") # Leave model turn open for answer
 
             full_context = "".join(context_parts)
             

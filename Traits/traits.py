@@ -15,7 +15,7 @@ class Trait:
         Executes and returns (in_tokens, out_tokens, duration, answer).
         """        
         start_t = time.time()
-        answer = await self.llm.generate_text(user_prompt=context)
+        answer = await self.llm.generate_text(user_prompt=context, temperature=0.0, max_tokens=1024)
         duration = time.time() - start_t
         
         in_tokens = len(context) // 4
