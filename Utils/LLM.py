@@ -42,7 +42,10 @@ class LLM:
         
         #0. If the user provided a primer, prepend it to the prompt (Gemma specific)
         if primer:
-            user_prompt = f"{user_prompt}<start_of_turn>model\n{primer}"
+            print("Primer provided, adjusting prompt format for Gemma...")
+            final_prompt = f"{user_prompt}<start_of_turn>model\n{primer}"
+        else:
+            final_prompt = user_prompt
         
         # 1. Format the prompt (Gemma specific)        
         stop_tokens = ["<end_of_turn>"]
@@ -58,7 +61,7 @@ class LLM:
             endpoint = f"{self.base_url}/api/generate"
             payload = {
                 "model": self.model_name,
-                "prompt": user_prompt,
+                "prompt": final_prompt,
                 "stream": False,
                 "options": {
                     "num_predict": max_tokens, # Ollama's version of max_tokens
@@ -72,7 +75,7 @@ class LLM:
             endpoint = f"{self.base_url}/v1/completions"
             payload = {
                 "model": self.model_name,
-                "prompt": user_prompt,
+                "prompt": final_prompt,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "stop": stop_tokens

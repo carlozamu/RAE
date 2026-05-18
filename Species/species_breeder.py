@@ -4,6 +4,8 @@ Handles the micro-level reproduction of a single isolated species.
 Applies Elitism, Rank-Based Parent Selection, Crossover, and Mutation.
 """
 from typing import List
+
+import numpy as np
 from Genome.agent_genome import AgentGenome
 from Selection.selection import RankBasedSelection
 from Crossover.crossover import Crossover
@@ -63,9 +65,14 @@ class SpeciesBreeder:
             # Select 2 parents using Rank-Based Selection
             parents = self.selector.select(current_species_members, num_parents=2)
             p1, p2 = parents[0], parents[1]
-            
-            # Crossover
-            child = Crossover.create_offspring(p1, p2)
+
+            # Get random value from 0 to 1 to determine if we should do crossover or just clone the better parent
+            if np.random.rand() > 0.25:
+                # Crossover
+                child = Crossover.create_offspring(p1, p2)
+            else:
+                # Get the fittest parent
+                child = p1.copy() if p1.fitness >= p2.fitness else p2.copy()
             
             # Mutate
             child = await self.mutator.mutate(child, current_generation=generation) 

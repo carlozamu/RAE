@@ -11,10 +11,10 @@ from Species.species_breeder import SpeciesBreeder
 class SpeciationEngine:
     def __init__(self, 
                  breeder: SpeciesBreeder,
-                 target_population_size: int = 40,
+                 target_population_size: int = 50,
                  target_species_count: int = 4, # Single target for the P-Controller
                  dropoff_age: int = 10,
-                 proportional_step: float = 0.075
+                 proportional_step: float = 0.5
                  ):
         """
         Args:
@@ -30,7 +30,7 @@ class SpeciationEngine:
         self.proportional_step = proportional_step
 
         self.species_list: List[Species] = []
-        self.compatibility_threshold = 2.0 # Starting point, will be dynamically tuned
+        self.compatibility_threshold = 2.3 # Starting point, will be dynamically tuned
         self.species_id_counter = 0
 
     async def step_generation(self, evaluated_population: List[AgentGenome], generation: int) -> List[AgentGenome]:

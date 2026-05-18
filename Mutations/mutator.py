@@ -48,8 +48,8 @@ mutator = Mutator(breeder_llm, config=tuning_config)
     """
     # 1. Define Defaults (The Baseline)
     DEFAULT_CONFIG = {
-        "p_architectural_event": 0.30, # Global chance of architectural mutation per offspring
-        "p_mutate_node": 0.10,         # Chance per-node of content mutation
+        "p_architectural_event": 0.35, # Global chance of architectural mutation per offspring
+        "p_mutate_node": 0.15,         # Chance per-node of content mutation (~1/7 so that for a mature individual with ~7 nodes, we get ~1 mutation per child on average)
         
         # Relative weights for Architectural mutations
         "arch_probs": {
@@ -78,11 +78,11 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         Gene mutations shift from early Cognitive Structuring to late Linguistic Compression.
         """
         
-        # --- 1. Global Rate Calculations ---
+        # --- 1. Global Rate Calculations --- (for a mature graph there is a 50% chance of not mutating at all)
         # Architectural Decay: Cools down global topology changes over generations
-        p_arch = max(0.25, 0.75 ** (generation + 1))
+        p_arch = max(0.35, 0.75 ** (generation + 1))
         # Gene Mutation: Ensures roughly 1 mutation per child graph
-        p_gene = max(0.25, 0.75 / max(1, node_count))
+        p_gene = max(0.15, 0.75 / max(1, node_count))
 
         # --- 2. Architectural Probabilities (Thermostat to N=7) ---
         

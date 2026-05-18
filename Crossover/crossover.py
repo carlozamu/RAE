@@ -40,12 +40,6 @@ class Crossover:
             if conn_id in worse_parent.connections:
                 worse_conn = worse_parent.connections[conn_id]
                 inherited_conn = better_conn.copy() if np.random.rand() < 0.5 else worse_conn.copy()
-                
-                # 75% Disable Rule
-                if not better_conn.enabled or not worse_conn.enabled:
-                    inherited_conn.enabled = False if np.random.rand() < 0.75 else True
-                else:
-                    inherited_conn.enabled = True
                     
                 offspring.connections[conn_id] = inherited_conn
             else:

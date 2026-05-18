@@ -32,10 +32,10 @@ STARTING_PROMPT = "Task: State only the one kinship word (from the posible answe
 NUM_INDIVIDUALS = 50  
 TARGET_SPECIES = 4
 DROPOFF_AGE = 8 # Generations a species can survive without improving max fitness  
-BATCH_SIZE = 50 # Number of problems each individual is evaluated on per generation
+BATCH_SIZE = 100 # Number of problems each individual is evaluated on per generation
 SELECTION_PRESSURE = 1.5
 ELITISM_RATIO = 0.2
-PROPORTIONAL_STEP = 0.075 # P-Controller gain for dynamic thresholding
+PROPORTIONAL_STEP = 0.5 # P-Controller gain for dynamic thresholding
 
 
 def force_cleanup():
@@ -82,7 +82,7 @@ async def run_evolution():
         target_population_size=NUM_INDIVIDUALS,
         target_species_count=TARGET_SPECIES,
         dropoff_age=DROPOFF_AGE,
-        proportioanl_step=PROPORTIONAL_STEP
+        proportional_step=PROPORTIONAL_STEP
     )
 
     print("✅ Evolution Engine Ready.")

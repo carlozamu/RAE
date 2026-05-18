@@ -25,16 +25,20 @@ def force_cleanup():
         torch.cuda.ipc_collect()
     print("✅ GPU Memory Released.")
 
-async def _evaluate_single_problem(problem, llm_client, fitness, semaphore):
+async def _evaluate_single_problem(idx, problem, dataset_manager, llm_client, fitness, semaphore):
     """Worker function with index tracking for debug printing."""
     async with semaphore:
-        prompt = problem['question']
+        story = problem['metadata']['story']
+        query = problem['metadata']['query']
+        prompt = dataset_manager.build_prompt_clutrr_few_shots(story, query)
 
         try:
-            generated_ans = await llm_client.generate_text(user_prompt=prompt, temperature=0.00)
+            generated_ans = await llm_client.generate_text(user_prompt=prompt, temperature=0.0)
+            if idx % 100 == 0:
+                print(f"Processed {idx} - Answer: '{generated_ans}'")
             token_used = (len(prompt) + len(generated_ans)) // 4
         except Exception as e:
-            print(f"Error executing baseline prompt: {e}")
+            print(f"Error executing few-shot prompt: {e}")
             generated_ans = ""
             token_used = len(prompt) // 4
 
@@ -60,8 +64,8 @@ async def _evaluate_single_problem(problem, llm_client, fitness, semaphore):
         
         return is_correct, score, answer_length
 
-async def run_baseline():
-    print("\n--- Initializing ERA Baseline ---")
+async def run_few_shots():
+    print("\n--- Initializing ERA Few-Shot ---")
     start_time = time.time()
     
     llm_client = LLM(model_name=MODEL_NAME, base_url=BASE_URL)
@@ -69,17 +73,16 @@ async def run_baseline():
     fitness = Fitness(llm=llm_client)
     
     # 2. Fetch the ENTIRE dataset
-    print("Fetching the COMPLETE dataset for stratified baseline...")
+    print("Fetching the COMPLETE dataset for stratified few-shot...")
     initial_problems_pool = dataset_manager.get_entire_dataset_stratified()
-    #initial_problems_pool = dataset_manager.get_full_split()
 
-    print(f"Starting Baseline evaluation with {MAX_CONCURRENT_REQUESTS} concurrent workers...\n")
+    print(f"Starting Few-Shot evaluation with {MAX_CONCURRENT_REQUESTS} concurrent workers...\n")
     
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
     
     tasks = [
-        _evaluate_single_problem(problem, llm_client, fitness, semaphore)
-        for problem in initial_problems_pool
+        _evaluate_single_problem(idx, problem, dataset_manager, llm_client, fitness, semaphore)
+        for idx, problem in enumerate(initial_problems_pool)
     ]
     
     # 3. Fire tasks
@@ -122,7 +125,7 @@ async def run_baseline():
     total_problems = len(initial_problems_pool)
     
     print("\n" + "="*50)
-    print("🎯 STRATIFIED BASELINE REPORT")
+    print("🎯 STRATIFIED FEW SHOTS REPORT")
     print("="*50)
     print(f"Execution Time: {execution_time:.2f} seconds")
     print(f"Total Problems Evaluated: {total_problems}\n")
@@ -148,6 +151,6 @@ async def run_baseline():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(run_baseline())
+        asyncio.run(run_few_shots())
     finally:
         force_cleanup()
