@@ -3,6 +3,7 @@ Species Breeder Module.
 Handles the micro-level reproduction of a single isolated species.
 Applies Elitism, Rank-Based Parent Selection, Crossover, and Mutation.
 """
+import asyncio
 from typing import List
 
 import numpy as np
@@ -29,11 +30,11 @@ class SpeciesBreeder:
         self.elitism_ratio = elitism_ratio
 
     async def breed_next_generation(self, 
-                                    current_species_members: List[AgentGenome], 
-                                    target_size: int,
-                                    generation:int) -> List[AgentGenome]:
+                                        current_species_members: List[AgentGenome], 
+                                        target_size: int,
+                                        generation: int) -> List[AgentGenome]:
         """
-        Creates the next generation for a specific species.
+        Creates the next generation for a specific species concurrently.
         """
         if target_size <= 0:
             return []
@@ -60,26 +61,34 @@ class SpeciesBreeder:
         if num_children_needed <= 0:
             return next_generation
 
-        # 4. Generate Children via Selection, Crossover, and Mutation
-        for _ in range(num_children_needed):
-            # Select 2 parents using Rank-Based Selection
+        # --- CONCURRENCY UPGRADE ---
+        
+        # Define a single asynchronous pipeline for a child
+        async def generate_single_child() -> AgentGenome:
+            # Select 2 parents
             parents = self.selector.select(current_species_members, num_parents=2)
             p1, p2 = parents[0], parents[1]
 
-            # Get random value from 0 to 1 to determine if we should do crossover or just clone the better parent
+            # Crossover or Clone
             if np.random.rand() > 0.25:
-                # Crossover
                 child = Crossover.create_offspring(p1, p2)
             else:
-                # Get the fittest parent
                 child = p1.copy() if p1.fitness >= p2.fitness else p2.copy()
-            
+
             # Mutate
             child = await self.mutator.mutate(child, current_generation=generation) 
             
-            # Reset the child's fitness so it must be evaluated in the macro loop
+            # Reset fitness
             child.fitness = 0.0 
-            
-            next_generation.append(child)
+            return child
+
+        # Create a list of tasks, but don't run them sequentially
+        child_tasks = [generate_single_child() for _ in range(num_children_needed)]
+        
+        # Fire them all off concurrently and wait for all to finish
+        mutated_children = await asyncio.gather(*child_tasks)
+        
+        # Add them to the next generation pool
+        next_generation.extend(mutated_children)
 
         return next_generation

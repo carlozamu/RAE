@@ -3,6 +3,7 @@ ERA: Evolving Reasoning Agents
 Main Execution Script
 """
 import asyncio
+import os
 import time
 import gc
 import torch
@@ -10,11 +11,13 @@ import subprocess
 
 # --- Internal Modules ---
 from Fitness.fitness import Fitness
+from Genome.agent_genome import AgentGenome
 from Phenotype.phenotype import Phenotype
 from Mutations.mutator import Mutator
 from Data.cluttr import CLUTTRManager
-from Utils.utilities import _get_next_innovation_number, log_generation_to_json, plot_complexity_vs_fitness
+from Utils.utilities import _get_next_innovation_number, log_generation_to_markdown, Plotter
 from Utils.LLM import LLM
+from Utils.baseline_exportable import evaluate_baseline_batch
 from ERA.init_pop import initialize_population
 
 # --- New Architectural Modules ---
@@ -32,10 +35,10 @@ STARTING_PROMPT = "Task: State only the one kinship word (from the posible answe
 NUM_INDIVIDUALS = 50  
 TARGET_SPECIES = 4
 DROPOFF_AGE = 8 # Generations a species can survive without improving max fitness  
-BATCH_SIZE = 100 # Number of problems each individual is evaluated on per generation
+BATCH_SIZE = 50 # Number of problems each individual is evaluated on per generation
 SELECTION_PRESSURE = 1.5
 ELITISM_RATIO = 0.2
-PROPORTIONAL_STEP = 0.5 # P-Controller gain for dynamic thresholding
+PROPORTIONAL_STEP = 0.2 # P-Controller gain for dynamic thresholding
 
 
 def force_cleanup():
@@ -47,34 +50,65 @@ def force_cleanup():
         torch.cuda.ipc_collect()
     print("✅ GPU Memory Released.")
 
+def log_and_print(message: str, log_file: str = "Utils/Logs/generation_logger.md"):
+    print(message)
+    
+    # Ensure the logs directory exists
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    
+    # Append the message to the markdown file
+    with open(log_file, "a", encoding="utf-8") as f:
+        # We strip leading newlines to avoid weird markdown formatting gaps, 
+        # but keep the newline at the end for the next log.
+        f.write(message.lstrip('\n') + "\n\n")
+
 async def run_evolution():
-    print("\n--- Initializing ERA System ---")
+    log_and_print("\n--- Initializing ERA System ---")
     
     # 1. Initialize API and Core Tools
     llm_client = LLM(model_name=MODEL_NAME, base_url=BASE_URL) 
-    fitness_evaluator = Fitness(llm=llm_client, use_reasoning=True)
+    fitness_evaluator = Fitness(llm=llm_client, use_reasoning=False)
     mutator = Mutator(breeder_llm_client=llm_client)
     dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
     
     # 2. Population Initialization
     initial_problems_pool = dataset_manager.get_batch(batch_size=BATCH_SIZE)
     _get_next_innovation_number() # Reset global innovation tracker
-
-    print("🌱 Seeding Minimal Population...")
-    evaluated_population = await initialize_population(
+    log_and_print("🌱 Seeding Minimal Population...")
+    start_init_time = time.time()
+    first_gen = await initialize_population(
         num_individuals=NUM_INDIVIDUALS, 
         prompt=STARTING_PROMPT, 
         problems_pool=initial_problems_pool, 
         llm_client=llm_client, 
         fitness_evaluator=fitness_evaluator
     )
-    
-    print(f"Initialized population: {len(evaluated_population)} clones. Best Gen 0 Fitness: {evaluated_population[0].genome.fitness:.4f}")
+    init_duration = time.time() - start_init_time
+    zero_shot_stats = await evaluate_baseline_batch(
+            baseline_name="Zero-Shot Baseline",
+            problem_batch=initial_problems_pool,
+            llm_client=llm_client,
+            fitness=fitness_evaluator,
+            prompt_builder_func=CLUTTRManager.build_prompt_clutrr_baseline
+    )
+    few_shots_stats = await evaluate_baseline_batch(
+        baseline_name="Few-Shot Baseline",
+        problem_batch=initial_problems_pool,
+        llm_client=llm_client,
+        fitness=fitness_evaluator,
+        prompt_builder_func=CLUTTRManager.build_prompt_clutrr_few_shots
+    )
+    log_and_print(f"\n📊 Generation 0 Summary:")
+    log_and_print(f"Baseline Zero-Shot run in {zero_shot_stats['execution_time']:.2f}s with {zero_shot_stats['accuracy']:.2f}% accuracy & {zero_shot_stats['fitness']:.2f} fitness.")
+    log_and_print(f"Baseline Few-Shots run in {few_shots_stats['execution_time']:.2f}s with {few_shots_stats['accuracy']:.2f}% accuracy & {few_shots_stats['fitness']:.2f} fitness.")
+    log_and_print(f"ERA initialized in {init_duration:.2f}s. with {first_gen[0].genome.fitness:.2f} best fitness.") 
+    log_and_print("-"*30)
 
     # 3. Setup the Micro and Macro Layers
     # Micro-Layer: Parent selection and breeding
     selector = RankBasedSelection(selection_pressure=SELECTION_PRESSURE)
     breeder = SpeciesBreeder(selector=selector, mutator=mutator, elitism_ratio=ELITISM_RATIO)
+    plotter = Plotter()
     
     # Macro-Layer: Ecology, speciation, and resource allocation
     speciation_engine = SpeciationEngine(
@@ -84,78 +118,88 @@ async def run_evolution():
         dropoff_age=DROPOFF_AGE,
         proportional_step=PROPORTIONAL_STEP
     )
-
-    print("✅ Evolution Engine Ready.")
+    log_and_print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
+    evaluated_population: list[AgentGenome] = [individual.genome for individual in first_gen]
+    speciation_engine._speciate_population(evaluated_population)
+    log_and_print("✅ Evolution Engine Ready.")
 
     # 4. Main Evolution Loop
-    print("\n🚀 Starting Evolution Loop...")
+    log_and_print("\n🚀 Starting Evolution Loop...")
     start_time = time.time()
     generation_idx = 0
-    encountered_species = {}  # Dictionary of (species_id, hex color) for plotting
 
     while generation_idx < MAX_GENERATIONS:
-        # A. Logging and Analytics for the Current (Evaluated) Generation
-        best_fit = float('-inf')
-        worse_fit = float('inf')
-        total_fit = 0.0
-        total_nodes = 0
-        total_edges = 0
-        
-        for phenotype in evaluated_population:
-            fit = phenotype.genome.fitness
-            total_fit += fit
-            total_nodes += len(phenotype.genome.nodes)
-            total_edges += len(phenotype.genome.connections)
+        gen_x_starting_time = time.time()
+        # A. THE GENETIC STEP (Macro + Micro Layers)
+        log_and_print(f"🧬 Speciating and Breeding Generation {generation_idx + 1}...")
+        start_breed_time = time.time()
+        unevaluated_next_gen_genomes = await speciation_engine.step_generation(generation=generation_idx)
+        breed_duration = time.time() - start_breed_time
+        log_and_print(f"⏱️ Breeding completed in {breed_duration:.2f} seconds. Generated {len(unevaluated_next_gen_genomes)} offspring.")
+        unevaluated_next_gen: list[Phenotype] = [Phenotype(genome=g, llm_client=llm_client) for g in unevaluated_next_gen_genomes]
+        log_and_print(f"📊 Active Species count for generation {generation_idx + 1}: {len(speciation_engine.species_list)}")
+        log_and_print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
 
-            if fit > best_fit: best_fit = fit
-            if fit < worse_fit: worse_fit = fit
+        # B. THE EVALUATION STEP
+        log_and_print(f"🧪 Fetching new {BATCH_SIZE} problem pool and evaluating {len(unevaluated_next_gen)} offspring...")
+        current_problem_pool = dataset_manager.get_batch(batch_size=BATCH_SIZE)
+        start_eval_time = time.time()
+        await fitness_evaluator.evaluate_population(unevaluated_next_gen, current_problem_pool)
+        eval_duration = time.time() - start_eval_time
 
-        avg_fit = total_fit / NUM_INDIVIDUALS
-        avg_nodes = total_nodes / NUM_INDIVIDUALS
-        avg_edges = total_edges / NUM_INDIVIDUALS
+        # C. THE BASELINE EVALUATION STEP
+        zero_shot_stats = await evaluate_baseline_batch(
+            baseline_name="Zero-Shot Baseline",
+            problem_batch=current_problem_pool,
+            llm_client=llm_client,
+            fitness=fitness_evaluator,
+            prompt_builder_func=CLUTTRManager.build_prompt_clutrr_baseline
+        )
+        few_shots_stats = await evaluate_baseline_batch(
+            baseline_name="Few-Shot Baseline",
+            problem_batch=current_problem_pool,
+            llm_client=llm_client,
+            fitness=fitness_evaluator,
+            prompt_builder_func=CLUTTRManager.build_prompt_clutrr_few_shots
+        )
         
-        print(f"\n--- Generation {generation_idx} ---")
-        print(f"Fitness -> Avg: {avg_fit:.2f} | Best: {best_fit:.2f} | Worst: {worse_fit:.2f}")
-        print(f"Structure -> Avg Nodes: {avg_nodes:.1f} | Avg Edges: {avg_edges:.1f}")
-        
-        # B. Utilities (Plotting & File Logging)
-        log_generation_to_json(evaluated_population, generation_idx) 
-        plot_path = plot_complexity_vs_fitness(evaluated_population, generation_idx, encountered_species) 
-        # (Optional: Only pop open the viewer every 10 generations to avoid spamming the screen)
-        #if generation_idx % 10 == 0: subprocess.Popen(['xdg-open', plot_path]) 
-        subprocess.Popen(['xdg-open', plot_path]) 
+        # D. Prepare for next iteration
+        evaluated_population: list[AgentGenome] = [individual.genome for individual in unevaluated_next_gen]
+        speciation_engine._speciate_population(evaluated_population) # Speciate the population for the logs
+        generation_idx += 1 # Increment generation counter
 
-        # C. Stop Criteria Checks
+        # E. Logging and Analytics for the Current (Evaluated) Generation
+        best_accuracy = fitness_evaluator.best_accuracy
+        avg_accuracy = fitness_evaluator.avg_accuracy
+        best_fit = log_generation_to_markdown(
+            speciation_engine.species_list, 
+            best_accuracy, 
+            avg_accuracy, 
+            zero_shot_stats, 
+            few_shots_stats, 
+            generation_idx
+        )
+        log_and_print(f"\n📊 Generation {generation_idx} Summary:")
+        log_and_print(f"Baseline Zero-Shot run in {zero_shot_stats['execution_time']:.2f}s with {zero_shot_stats['accuracy']:.2f}% accuracy & {zero_shot_stats['fitness']:.2f} fitness.")
+        log_and_print(f"Baseline Few-Shots run in {few_shots_stats['execution_time']:.2f}s with {few_shots_stats['accuracy']:.2f}% accuracy & {few_shots_stats['fitness']:.2f} fitness.")
+        log_and_print(f"ERA run in {eval_duration:.2f}s. with {best_accuracy:.2f}% accuracy, {best_fit:.2f} best fitness.") 
+        gen_x_duration = time.time() - gen_x_starting_time
+        log_and_print(f"⏱️ Generation {generation_idx} completed in {gen_x_duration:.2f} seconds.")
+        log_and_print("-"*30)
+
+        # F. Plot Generation for visual analysis
+        plot_path = plotter.plot_complexity_vs_fitness(speciation_engine.species_list, generation_idx) 
+        subprocess.Popen(['xdg-open', plot_path])
+
+        # G. Stop Criteria Checks
         if best_fit >= TARGET_FITNESS:
-            print(f"\n🏆 SUCCESS: Target Fitness ({TARGET_FITNESS}) reached! Final Best: {best_fit:.4f}")
+            log_and_print(f"\n🏆 SUCCESS: Target Fitness ({TARGET_FITNESS}) reached! Final Best: {best_fit:.4f}")
             break
         if (time.time() - start_time) > MAX_TIME_SECONDS:
-            print(f"\n🛑 STOP: Maximum time limit ({MAX_TIME_SECONDS}s) reached.")
+            log_and_print(f"\n🛑 STOP: Maximum time limit ({MAX_TIME_SECONDS}s) reached.")
             break
 
-        # D. THE GENETIC STEP (Macro + Micro Layers)
-        print(f"🧬 Speciating and Breeding Generation {generation_idx + 1}...")
-        
-        genomes_to_breed = [p.genome for p in evaluated_population]
-        unevaluated_next_gen_genomes = await speciation_engine.step_generation(genomes_to_breed, generation=generation_idx)
-        # wrap the new genomes into Phenotypes with empty fitness for the next evaluation step
-        unevaluated_next_gen: list[Phenotype] = [Phenotype(genome=g, llm_client=llm_client) for g in unevaluated_next_gen_genomes]
-        
-        print(f"📊 Active Species count for next gen: {len(speciation_engine.species_list)}")
-        print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
-
-        # E. THE EVALUATION STEP
-        print("🧪 Fetching new problem pool and evaluating offspring...")
-        current_problem_pool = dataset_manager.get_batch(batch_size=BATCH_SIZE)
-        
-        # Next generation evaluates on the NEW batch of problems
-        await fitness_evaluator.evaluate_population(unevaluated_next_gen, current_problem_pool)
-        
-        # F. Prepare for next iteration
-        evaluated_population = unevaluated_next_gen
-        generation_idx += 1
-
-    print("--- Evolution Finished ---")
+    log_and_print("--- Evolution Finished ---")
 
 if __name__ == "__main__":
     try:

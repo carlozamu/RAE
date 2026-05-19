@@ -5,10 +5,7 @@ class Crossover:
     @staticmethod
     def create_offspring(parent1: AgentGenome, parent2: AgentGenome) -> AgentGenome:
         offspring = AgentGenome()
-        offspring.start_node_innovation_number = parent1.start_node_innovation_number
-        offspring.end_node_innovation_number = parent1.end_node_innovation_number
-        
-        # 1. Determine Fitness (Assuming higher is better)
+        # 1. Determine Fitness First
         if parent1.fitness > parent2.fitness:
             better_parent, worse_parent = parent1, parent2
             equal_fitness = False
@@ -18,6 +15,10 @@ class Crossover:
         else:
             better_parent, worse_parent = parent1, parent2
             equal_fitness = True
+
+        # 2. Inherit Pointers from the Fitter Parent
+        offspring.start_node_innovation_number = better_parent.start_node_innovation_number
+        offspring.end_node_innovation_number = better_parent.end_node_innovation_number
 
         # 2. Inherit Nodes (FIXED: 50/50 Semantic Inheritance)
         for node_id, better_node in better_parent.nodes.items():

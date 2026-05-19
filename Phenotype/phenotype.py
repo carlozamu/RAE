@@ -1,5 +1,6 @@
 from math import inf
 from typing import Dict, Any
+from Gene.gene import PromptNode
 from Genome.agent_genome import AgentGenome
 from Traits.traits import Trait
 from Utils.LLM import LLM
@@ -12,10 +13,10 @@ class Phenotype:
     async def run(self, problem: str) -> Dict[str, Any]:
         # 1. Get Plan
         # execution_order is [(NodeObject, [Parent_IDs]), ...]
-        execution_order = self.genome.get_execution_order() 
+        execution_order: list[tuple[PromptNode, list[int]]] = self.genome.get_execution_order() 
         
         # 2. Lightweight Memory (ID -> Instructions, Answer String)
-        trait_answers: Dict[str, tuple[str, str]] = {}
+        trait_answers: Dict[int, tuple[str, str]] = {}
         
         total_in_tokens = 0
         total_out_tokens = 0
@@ -29,14 +30,12 @@ class Phenotype:
             
             if parent_ids:
                 for pid in parent_ids:
-                    # We only fetch the string, saving memory
+                    # We only fetch the ints, saving memory
                     if pid in trait_answers:
                         parent_instructions, parent_answer = trait_answers[pid]
                         parent_turn = f"<start_of_turn>user\n{parent_instructions}<end_of_turn>\n<start_of_turn>model\n{parent_answer}<end_of_turn>\n"
                         context_parts.append(parent_turn)
-            
-            
-            
+                     
             # Chek if it is the last node
             context_parts.append(f"<start_of_turn>user\n{node.instruction}<end_of_turn>\n<start_of_turn>model\n") # Leave model turn open for answer
 
@@ -45,7 +44,11 @@ class Phenotype:
             # B. Execute (Transient)
             trait = Trait(node, self.llm)
             # Fix: renamed 'time' to 'duration' to avoid shadowing module
-            in_t, out_t, duration, answer = await trait.execute(full_context)
+            last = False
+            if node.id == self.genome.end_node_innovation_number:
+                last= True
+            in_t, out_t, duration, answer = await trait.execute(full_context, last)
+            last = False
             
             # C. Store Result
             trait_answers[node.id] = (node.instruction, answer)

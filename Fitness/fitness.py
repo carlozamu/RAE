@@ -15,6 +15,8 @@ class Fitness:
             max_penalty=0.9,
             llm=llm
         )
+        self.best_accuracy = 0.0
+        self.avg_accuracy = 0.0
     
     async def _evaluate_single_problem(self, individual: Phenotype, problem: Dict) -> Tuple[float, int]:
         """Evaluates a single problem and returns (Score, Tokens_Used)."""        
@@ -43,13 +45,14 @@ class Fitness:
         )
         return score, token_used
 
-    async def _evaluate_individual_full(self, individual: Phenotype, problem_pool: List[Dict], batch_size: int) -> List[int]:
+    async def _evaluate_individual_full(self, individual: Phenotype, problem_pool: List[Dict]) -> List[tuple[int, float]]:
         """
         Helper method to evaluate a single individual across all problems sequentially,
         preserving the Circuit Breaker logic.
         """
         total_score = 0.0
         failed_count = 0
+        accuracy = 0
         token_usages = []
         
         for i, problem in enumerate(problem_pool):
@@ -64,20 +67,19 @@ class Fitness:
                 failed_count += 1
             else:
                 failed_count = 0 
+                accuracy += 1
                 
             # --- CIRCUIT BREAKER ---
             if failed_count > len(problem_pool) * PERCENTAGE_FAILURE_THRESHOLD:
-                # Aggressive Penalty
-                remaining_questions = batch_size - (i + 1)
-                total_score -= (remaining_questions * self.calculator.acc_score)
                 break 
         
         # Calculate final fitness
-        avg_score = (total_score * 100) / batch_size
+        avg_score = (total_score * 100) / (i+1) if i >= 0 else 0.0
+        accuracy = (accuracy * 100) / (i+1) if i >= 0 else 0.0
         individual.genome.fitness = max(0.01, avg_score)
         
         # Return tokens so the parent gather() can collect them all
-        return token_usages
+        return token_usages, accuracy
 
     async def evaluate_population(self, population: List[Phenotype], problem_pool: List[Dict]):
         """
@@ -89,8 +91,6 @@ class Fitness:
         
         print(f"Evaluating population of {len(population)} individuals on {len(problem_pool)} problems with circuit breaker threshold at {PERCENTAGE_FAILURE_THRESHOLD*100}% failures.")
 
-        batch_size = len(problem_pool)
-
         # --- THE HARDWARE LIMITER ---
         MAX_CONCURRENT = 50 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT)
@@ -98,7 +98,7 @@ class Fitness:
         async def _bounded_evaluate(individual):
             """Wrapper to enforce the semaphore limit per individual."""
             async with semaphore:
-                return await self._evaluate_individual_full(individual, problem_pool, batch_size)
+                return await self._evaluate_individual_full(individual, problem_pool)
 
         # 1. Create the bounded tasks
         tasks = [
@@ -106,15 +106,22 @@ class Fitness:
             for individual in population
         ]
 
-        # 2. Fire gather. It will attempt to run all 60, but the Semaphore 
+        # 2. Fire gather. It will attempt to run all, but the Semaphore 
         # will physically block it from sending more than MAX_CONCURRENT at once.
         results = await asyncio.gather(*tasks)
 
         # 3. Aggregate tokens and apply Red Queen shift
         all_token_usages = []
-        for individual_tokens in results:
+        all_accuracies = []
+        for individual_tokens, accuracy in results:
             all_token_usages.extend(individual_tokens)
+            all_accuracies.append(accuracy)
 
         if all_token_usages:
             self.calculator.update_baselines(all_token_usages)
+        if all_accuracies:
+            max_accuracy = max(all_accuracies)
+            avg_accuracy = sum(all_accuracies) / len(all_accuracies)
+            self.best_accuracy = max(self.best_accuracy, max_accuracy)
+            self.avg_accuracy = avg_accuracy
     

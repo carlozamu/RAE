@@ -1,3 +1,4 @@
+import asyncio
 import os
 import warnings
 
@@ -22,6 +23,7 @@ class LLM:
         self.base_url = base_url
         self.headers = {"Content-Type": "application/json"}
         self.model_name = model_name
+        self.semaphore = asyncio.Semaphore(50)
 
         # Load Embedding Model ONCE (Global Singleton Pattern)
         global _EMBEDDER_INSTANCE
@@ -38,57 +40,54 @@ class LLM:
         """
         return self.embedder.encode(text).tolist()
 
-    async def generate_text(self, user_prompt:str, temperature:float, primer: str = "" , max_tokens=512, stop=None) -> str:
-        
-        #0. If the user provided a primer, prepend it to the prompt (Gemma specific)
-        final_prompt = user_prompt+primer
-        
-        # 1. Format the prompt (Gemma specific)        
-        stop_tokens = ["<end_of_turn>"]
-        if stop:
-            stop_tokens.extend(stop if isinstance(stop, list) else [stop])
+    async def generate_text(self, user_prompt:str, temperature:float, max_tokens=512, stop=None) -> str:
+        async with self.semaphore:
+            # 1. Format the prompt (Gemma specific)        
+            stop_tokens = ["<end_of_turn>"]
+            if stop:
+                stop_tokens.extend(stop if isinstance(stop, list) else [stop])
 
-        # 2. Determine if we are talking to Ollama or vLLM
-        is_ollama = "11434" in self.base_url
-        
-        # 3. Adjust Payload
-        if is_ollama:
-            # Ollama Native API format
-            endpoint = f"{self.base_url}/api/generate"
-            payload = {
-                "model": self.model_name,
-                "prompt": final_prompt,
-                "stream": False,
-                "options": {
-                    "num_predict": max_tokens, # Ollama's version of max_tokens
-                    "temperature": temperature,
-                    "stop": stop_tokens,
-                    "num_ctx": 4096 # Essential to keep consistent with vLLM
+            # 2. Determine if we are talking to Ollama or vLLM
+            is_ollama = "11434" in self.base_url
+            
+            # 3. Adjust Payload
+            if is_ollama:
+                # Ollama Native API format
+                endpoint = f"{self.base_url}/api/generate"
+                payload = {
+                    "model": self.model_name,
+                    "prompt": user_prompt,
+                    "stream": False,
+                    "options": {
+                        "num_predict": max_tokens, # Ollama's version of max_tokens
+                        "temperature": temperature,
+                        "stop": stop_tokens,
+                        "num_ctx": 4096 # Essential to keep consistent with vLLM
+                    }
                 }
-            }
-        else:
-            # vLLM / OpenAI format
-            endpoint = f"{self.base_url}/v1/completions"
-            payload = {
-                "model": self.model_name,
-                "prompt": final_prompt,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "stop": stop_tokens
-            }
+            else:
+                # vLLM / OpenAI format
+                endpoint = f"{self.base_url}/v1/completions"
+                payload = {
+                    "model": self.model_name,
+                    "prompt": user_prompt,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "stop": stop_tokens
+                }
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(endpoint, headers=self.headers, json=payload) as resp:
-                    resp.raise_for_status()
-                    data = await resp.json()
-                    
-                    # 4. Handle Different Response Structures
-                    if is_ollama:
-                        return data.get('response', '').strip()
-                    else:
-                        return data['choices'][0]['text'].strip()
-        except Exception as e:
-            print(f"LLM Error: {e}")
-            return ""
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(endpoint, headers=self.headers, json=payload) as resp:
+                        resp.raise_for_status()
+                        data = await resp.json()
+                        
+                        # 4. Handle Different Response Structures
+                        if is_ollama:
+                            return data.get('response', '').strip()
+                        else:
+                            return data['choices'][0]['text'].strip()
+            except Exception as e:
+                print(f"LLM Error: {e}")
+                return ""
         

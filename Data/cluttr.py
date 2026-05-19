@@ -60,6 +60,13 @@ class CLUTTRManager:
             story = item["story"]
             query = item["query"]
             target = item["target_text"]
+            task_name = item.get("task_name", "")
+            
+            # Extract the reasoning length (num2) from "task_[num1].[num2]"
+            try:
+                reasoning_length = int(task_name.split(".")[1])
+            except (IndexError, ValueError):
+                reasoning_length = 0 # Fallback if data is malformed
             
             prompt = self.build_prompt_clutrr(story, query)
             
@@ -70,6 +77,9 @@ class CLUTTRManager:
                 "metadata": {
                     "story": story,
                     "query": query,
+                    "task_name": task_name,
+                    "reasoning_length": reasoning_length,
+                    "split_origin": "train",
                     "id": item.get("id", None)
                 }
             })
@@ -298,6 +308,7 @@ Understand the family relationship between {name2} and {name1}, and to describe 
     def map_to_relation(cls, text: str) -> str:
         """
         Extracts the relationship from the model's output using strict mapping and synonyms.
+        Penalizes 'shotgunning': if multiple distinct kinship terms are found, it returns "".
         """
         if not text:
             return ""
@@ -305,27 +316,31 @@ Understand the family relationship between {name2} and {name1}, and to describe 
         norm_full = cls.normalize_text_simple(text)
         tokens = norm_full.split()
 
-        # 1. Exact match in tokens
-        for tok in tokens:
-            if tok in cls.RELATIONS:
-                return tok
-
-        # 2. Synonym match
-        for tok in tokens:
-            if tok in cls.SYNONYM_MAP:
-                return cls.SYNONYM_MAP[tok]
-
-        # 3. Joined match (e.g. "soninlaw")
+        # 1. Edge Case Protection: Perfect joined match (e.g., text is exactly "son in law")
+        # We do this FIRST so the word "son" doesn't trigger a false positive before the 
+        # joined string "soninlaw" is evaluated.
         joined = norm_full.replace(" ", "")
         if joined in cls.SYNONYM_MAP:
             return cls.SYNONYM_MAP[joined]
-        
-        # Extra check: if the joined string IS a relation (e.g. "son-in-law" became "soninlaw" in norm? No, norm keeps hyphens)
-        # But if user output "son in law", norm is "son in law", joined is "soninlaw".
-        # We need to check if joined matches a relation with hyphens removed.
-        
+            
         clean_relations = {r.replace("-", ""): r for r in cls.RELATIONS}
         if joined in clean_relations:
             return clean_relations[joined]
 
+        # 2. Collect all distinct relations found in the text
+        found_relations = set()
+
+        for tok in tokens:
+            if tok in cls.RELATIONS:
+                found_relations.add(tok)
+            elif tok in cls.SYNONYM_MAP:
+                # Add the canonical relation, not the synonym
+                found_relations.add(cls.SYNONYM_MAP[tok])
+
+        # 3. Strict Evaluation
+        # If exactly ONE unique relationship type was found, return it.
+        if len(found_relations) == 1:
+            return list(found_relations)[0]
+            
+        # If 0 were found, or > 1 were found (the model is yapping/guessing), fail it.
         return ""

@@ -5,9 +5,9 @@ from Gene.gene import PromptNode
 from Gene.connection import Connection
 
 class AgentGenome:
-    def __init__(self, nodes_dict: dict[str, PromptNode] = None, connections_dict: dict[str, Connection] = None, start_node_innovation_number:int=None, end_node_innovation_number:int=None, fitness:float=math.inf):
+    def __init__(self, nodes_dict: dict[int, PromptNode] = None, connections_dict: dict[str, Connection] = None, start_node_innovation_number:int=None, end_node_innovation_number:int=None, fitness:float=math.inf):
         self.id = str(uuid.uuid4())
-        self.nodes: dict[str, PromptNode] = nodes_dict if nodes_dict is not None else {} # dict of innovation_number: PromptNode
+        self.nodes: dict[int, PromptNode] = nodes_dict if nodes_dict is not None else {} # dict of innovation_number: PromptNode
         self.connections: dict[str, Connection] = connections_dict if connections_dict is not None else {} # dict of innovation_number: Connection
         self.start_node_innovation_number = start_node_innovation_number if start_node_innovation_number is not None else None
         self.end_node_innovation_number = end_node_innovation_number if end_node_innovation_number is not None else None
@@ -26,7 +26,7 @@ class AgentGenome:
         new_conn = Connection(in_node_innovation_number, out_node_innovation_number)
         self.connections[new_conn.innovation_number] = new_conn
 
-    def get_execution_order(self) -> list[tuple[PromptNode, list[str]]]:
+    def get_execution_order(self) -> list[tuple[PromptNode, list[int]]]:
         """
         Returns a topologically sorted execution plan.
         """
@@ -44,9 +44,9 @@ class AgentGenome:
                 return []
 
         # 1. Build Adjacency List and Parent Map
-        adj = {node_id: [] for node_id in self.nodes}
-        parent_map = {node_id: [] for node_id in self.nodes} 
-        in_degree = {node_id: 0 for node_id in self.nodes}
+        adj = {node_inn: [] for node_inn in self.nodes}
+        parent_map = {node_inn: [] for node_inn in self.nodes} 
+        in_degree = {node_inn: 0 for node_inn in self.nodes}
 
         for conn in self.connections.values():
             if conn.enabled:
@@ -58,7 +58,7 @@ class AgentGenome:
 
         # 2. Initialize Queue
         queue = [self.start_node_innovation_number]
-        execution_plan = []
+        execution_plan: list[tuple[PromptNode, list[int]]] = []
         
         # 3. Kahn's Algorithm Loop
         while queue:
@@ -68,7 +68,7 @@ class AgentGenome:
                 continue
 
             node_obj = self.nodes[curr_id]
-            input_sources = parent_map.get(curr_id, [])
+            input_sources: list[int] = parent_map.get(curr_id, [])
             execution_plan.append((node_obj, input_sources))
 
             for neighbor in adj[curr_id]:
