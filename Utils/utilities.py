@@ -1,29 +1,98 @@
+import gc
 import os
 import random
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 from Species.species import Species
 
-# --- 1. ID Generators ---
-_ID_REGISTRY = {}
+# --- 1. Innovation Numbers Registry ---
+class SemanticRegistry:
+    _instance = None
 
-def create_id(class_type: type) -> int:
-    """Generates a unique incremental ID per class type."""
-    type_name = class_type.__name__
-    if type_name not in _ID_REGISTRY:
-        _ID_REGISTRY[type_name] = -1
-    _ID_REGISTRY[type_name] += 1
-    return _ID_REGISTRY[type_name]
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(SemanticRegistry, cls).__new__(cls)
+            
+            # Mathematical History (STRICTLY Arrays)
+            cls._instance.registry = {}  # type Dict[int, List[np.ndarray]]
+            
+            # Text History (STRICTLY Strings) for debugging and telemetry
+            cls._instance.prompt_history = {}  # type Dict[int, List[str]]
+            
+            cls._instance.next_innovation_number = 0
+            
+            # You may need to slightly adjust this threshold now that we are using averages.
+            # Averages naturally pull scores down slightly compared to best-case single matches.
+            cls._instance.similarity_threshold = 0.65 
+            
+        return cls._instance
+    
+    def reset(self):
+        """Resets the registry to an empty state. Useful for testing or fresh runs."""
+        self.registry.clear()
+        self.prompt_history.clear()
+        self.next_innovation_number = 0
 
-NEXT_INNOVATION_NUMBER = -1
-def _get_next_innovation_number() -> int:
-    global NEXT_INNOVATION_NUMBER
-    NEXT_INNOVATION_NUMBER += 1
-    return NEXT_INNOVATION_NUMBER
+    def get_or_create_innovation_number(
+        self, 
+        new_embedding: np.ndarray | list, 
+        current_genome_node_ids: Set[int], 
+        prompt_text: str,
+        old_innovation_number: int = -1
+    ) -> int:
+        
+        # 1. Prepare variables
+        emb_array = np.array(new_embedding).flatten()
+            
+        best_id = -1
+        best_sim = -1.0
 
+        # 2. Filter registry to find only INNOVATION NUMBERS that are either:
+        #    a) Not currently used in the genome (to allow reuse of old genes)
+        #    b) The same as the old innovation number (to allow stable matching during mutations)
+        available_ids = [
+            inn_num for inn_num in self.registry.keys() 
+            if inn_num not in current_genome_node_ids or inn_num == old_innovation_number
+        ]
+        
+        # 2.1 Sort available IDs for consistent behavior (prefer older IDs if multiple have the same similarity)
+        available_ids.sort()
 
+        # 3. Find the highest compatibility across all available families (Average Linkage)
+        for inn_num in available_ids:
+            family_embeddings = self.registry[inn_num]
+            
+            # Compute similarity against EVERY member of the family
+            total_sim = 0.0
+            for member_emb in family_embeddings:
+                sim = np.dot(emb_array, member_emb) / (np.linalg.norm(emb_array) * np.linalg.norm(member_emb))
+                total_sim += sim
+                
+            # Calculate the exact average similarity
+            avg_sim = total_sim / len(family_embeddings)
+            
+            # Check if this family's average is the highest we've seen
+            if avg_sim > best_sim:
+                best_sim = avg_sim
+                best_id = inn_num
+
+        # 4. Assignment Logic
+        # We test the highest average similarity against your strict threshold
+        if best_sim >= self.similarity_threshold:
+            self.registry[best_id].append(emb_array)
+            self.prompt_history[best_id].append(prompt_text)
+            return best_id
+        
+        # 5. Mint a new Innovation Number
+        new_id = self.next_innovation_number
+        self.registry[new_id] = [emb_array]
+        self.prompt_history[new_id] = [prompt_text]
+        self.next_innovation_number += 1
+        
+        return new_id
 # --- 2. Plotting Utility ---
 class Plotter:
     """
@@ -139,8 +208,33 @@ class Plotter:
         
         return filename
     
-
 # --- 3. Logging Utility ---
+def log_and_print(message: str, log_file: str = "Utils/Logs/generation_logger.md"):
+    print(message)
+    
+    # Ensure the logs directory exists
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    
+    # Append the message to the markdown file
+    with open(log_file, "a", encoding="utf-8") as f:
+        # We strip leading newlines to avoid weird markdown formatting gaps, 
+        # but keep the newline at the end for the next log.
+        f.write(message.lstrip('\n') + "\n\n")
+
+def clear_log_file(log_file: str = "Utils/Logs/generation_logger.md"):
+    """
+    Clears the contents of the log file before a fresh run.
+    If the file or directory does not exist, it safely initializes them.
+    """
+    # 1. Ensure the directory exists first, just in case this function 
+    # is called before log_and_print has a chance to create it.
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    
+    # 2. Open in 'w' mode. This instantly wipes all existing content.
+    # We use 'pass' because we don't need to write anything; the act 
+    # of opening it in 'w' mode does all the work.
+    with open(log_file, "w", encoding="utf-8") as f:
+        pass
 
 def log_generation_to_markdown(species_list: List[Species], 
                                best_accuracy: float, 
@@ -148,6 +242,7 @@ def log_generation_to_markdown(species_list: List[Species],
                                zero_shot_stats: Dict[str, Any], 
                                few_shots_stats: Dict[str, Any], 
                                generation_idx: int,
+                               eval_duration: float,
                                log_file: str = "Utils/Logs/generation_logger.md") -> float:
     """
     Evaluates the generation's ecology, identifies champions, and appends a 
@@ -195,17 +290,17 @@ def log_generation_to_markdown(species_list: List[Species],
     
     # --- Global Performance Table ---
     md_lines.append("### 📊 Macro Performance")
-    md_lines.append("| Engine | Accuracy | Fitness | Exec Time |")
-    md_lines.append("| :--- | :---: | :---: | :---: |")
-    md_lines.append(f"| **ERA (Population)** | {best_accuracy:.2f}% (Best) / {avg_accuracy:.2f}% (Avg) | {global_best_fitness:.4f} | - |")
-    md_lines.append(f"| **Zero-Shot Baseline** | {zero_shot_stats['accuracy']:.2f}% | {zero_shot_stats['fitness']:.4f} | {zero_shot_stats['execution_time']:.2f}s |")
-    md_lines.append(f"| **Few-Shot Baseline** | {few_shots_stats['accuracy']:.2f}% | {few_shots_stats['fitness']:.4f} | {few_shots_stats['execution_time']:.2f}s |")
+    md_lines.append(f"| Engine | Accuracy | Fitness | Exec Time |")
+    md_lines.append(f"| :----- | :------: | :-----: | :-------: |")
+    md_lines.append(f"| **ERA (Population)**   | Best Acc: {best_accuracy:.2f}% / Avg Acc: {avg_accuracy:.2f}% | Best Fit: {global_best_fitness:.4f}   | {eval_duration:.2f}s |")
+    md_lines.append(f"| **Zero-Shot Baseline** | Acc: {zero_shot_stats['accuracy']:.2f}%                       | Fit: {zero_shot_stats['fitness']:.4f} | {zero_shot_stats['execution_time']:.2f}s |")
+    md_lines.append(f"| **Few-Shot Baseline**  | Acc: {few_shots_stats['accuracy']:.2f}%                       | Fit: {few_shots_stats['fitness']:.4f} | {few_shots_stats['execution_time']:.2f}s |")
     md_lines.append("\n---\n")
     
     # --- Ecology Overview Table ---
     md_lines.append("### 🌍 Ecological Overview")
     md_lines.append("| Species ID | Age | Stagnation | Members | Best Fitness | Avg Fitness |")
-    md_lines.append("| :---: | :---: | :---: | :---: | :---: | :---: |")
+    md_lines.append("| :--------: | :-: | :--------: | :-----: | :----------: | :---------: |")
     
     for data in ecology_data:
         md_lines.append(f"| `{data['id']}` | {data['age']} | {data['stagnation']} | {data['members']} | {data['best_fit']:.4f} | {data['avg_fit']:.4f} |")
@@ -256,3 +351,14 @@ def log_generation_to_markdown(species_list: List[Species],
         f.write("\n".join(md_lines))
         
     return global_best_fitness
+
+# GPU Utility
+def force_cleanup():
+    """Releases GPU memory."""
+    print("\n🧹 Performing Memory Cleanup...")
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+    print("✅ GPU Memory Released.")
+

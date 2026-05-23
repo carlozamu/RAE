@@ -3,10 +3,7 @@ ERA: Evolving Reasoning Agents
 Main Execution Script
 """
 import asyncio
-import os
 import time
-import gc
-import torch
 import subprocess
 
 # --- Internal Modules ---
@@ -15,12 +12,10 @@ from Genome.agent_genome import AgentGenome
 from Phenotype.phenotype import Phenotype
 from Mutations.mutator import Mutator
 from Data.cluttr import CLUTTRManager
-from Utils.utilities import _get_next_innovation_number, log_generation_to_markdown, Plotter
+from Utils.utilities import log_generation_to_markdown, log_and_print, clear_log_file, Plotter, force_cleanup
 from Utils.LLM import LLM
 from Utils.baseline_exportable import evaluate_baseline_batch
 from ERA.init_pop import initialize_population
-
-# --- New Architectural Modules ---
 from Selection.selection import RankBasedSelection
 from Species.species_breeder import SpeciesBreeder
 from Species.speciation_engine import SpeciationEngine
@@ -34,35 +29,14 @@ TARGET_FITNESS = 95.0        # Higher is better (Max is 100.0)
 STARTING_PROMPT = "Task: State only the one kinship word (from the posible answers) that describes the family relationship."
 NUM_INDIVIDUALS = 50  
 TARGET_SPECIES = 4
-DROPOFF_AGE = 8 # Generations a species can survive without improving max fitness  
+DROPOFF_AGE = 14 # Generations a species can survive without improving max fitness  
 BATCH_SIZE = 50 # Number of problems each individual is evaluated on per generation
 SELECTION_PRESSURE = 1.5
 ELITISM_RATIO = 0.2
-PROPORTIONAL_STEP = 0.2 # P-Controller gain for dynamic thresholding
-
-
-def force_cleanup():
-    """Releases GPU memory."""
-    print("\n🧹 Performing Memory Cleanup...")
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
-    print("✅ GPU Memory Released.")
-
-def log_and_print(message: str, log_file: str = "Utils/Logs/generation_logger.md"):
-    print(message)
-    
-    # Ensure the logs directory exists
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    
-    # Append the message to the markdown file
-    with open(log_file, "a", encoding="utf-8") as f:
-        # We strip leading newlines to avoid weird markdown formatting gaps, 
-        # but keep the newline at the end for the next log.
-        f.write(message.lstrip('\n') + "\n\n")
+PROPORTIONAL_STEP = 0.5 # P-Controller gain for dynamic thresholding
 
 async def run_evolution():
+    clear_log_file() # Start with a clean slate for logging
     log_and_print("\n--- Initializing ERA System ---")
     
     # 1. Initialize API and Core Tools
@@ -73,7 +47,6 @@ async def run_evolution():
     
     # 2. Population Initialization
     initial_problems_pool = dataset_manager.get_batch(batch_size=BATCH_SIZE)
-    _get_next_innovation_number() # Reset global innovation tracker
     log_and_print("🌱 Seeding Minimal Population...")
     start_init_time = time.time()
     first_gen = await initialize_population(
@@ -177,7 +150,8 @@ async def run_evolution():
             avg_accuracy, 
             zero_shot_stats, 
             few_shots_stats, 
-            generation_idx
+            generation_idx,
+            eval_duration
         )
         log_and_print(f"\n📊 Generation {generation_idx} Summary:")
         log_and_print(f"Baseline Zero-Shot run in {zero_shot_stats['execution_time']:.2f}s with {zero_shot_stats['accuracy']:.2f}% accuracy & {zero_shot_stats['fitness']:.2f} fitness.")

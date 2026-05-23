@@ -53,12 +53,14 @@ class Fitness:
         total_score = 0.0
         failed_count = 0
         accuracy = 0
+        problems_evaluated = 0
         token_usages = []
         
         for i, problem in enumerate(problem_pool):
             # This remains sequential per-individual to support the DAG and circuit breaker
             score, tokens = await self._evaluate_single_problem(individual, problem)
             total_score += score
+            problems_evaluated += 1
             
             if tokens > 0:
                 token_usages.append(tokens)
@@ -74,9 +76,9 @@ class Fitness:
                 break 
         
         # Calculate final fitness
-        avg_score = (total_score * 100) / (i+1) if i >= 0 else 0.0
-        accuracy = (accuracy * 100) / (i+1) if i >= 0 else 0.0
-        individual.genome.fitness = max(0.01, avg_score)
+        avg_score = ((total_score) / (problems_evaluated))*100 if problems_evaluated > 0 else 0.0
+        accuracy = ((accuracy) / (problems_evaluated))*100 if problems_evaluated > 0 else 0.0
+        individual.genome.fitness = float(max(0.01, avg_score))
         
         # Return tokens so the parent gather() can collect them all
         return token_usages, accuracy
@@ -111,8 +113,8 @@ class Fitness:
         results = await asyncio.gather(*tasks)
 
         # 3. Aggregate tokens and apply Red Queen shift
-        all_token_usages = []
-        all_accuracies = []
+        all_token_usages: list[int] = []
+        all_accuracies: list[float] = []
         for individual_tokens, accuracy in results:
             all_token_usages.extend(individual_tokens)
             all_accuracies.append(accuracy)
@@ -122,6 +124,6 @@ class Fitness:
         if all_accuracies:
             max_accuracy = max(all_accuracies)
             avg_accuracy = sum(all_accuracies) / len(all_accuracies)
-            self.best_accuracy = max(self.best_accuracy, max_accuracy)
+            self.best_accuracy = max_accuracy
             self.avg_accuracy = avg_accuracy
     

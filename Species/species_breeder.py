@@ -48,7 +48,7 @@ class SpeciesBreeder:
         next_generation: List[AgentGenome] = []
 
         # 2. Elitism: Clone the absolute best individuals directly
-        num_elites = math.floor(target_size * self.elitism_ratio)
+        num_elites = math.floor(len(current_species_members) * self.elitism_ratio)
         num_elites = min(num_elites, len(sorted_members), target_size) # Cap it safely
         
         for i in range(num_elites):

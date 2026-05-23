@@ -1,11 +1,13 @@
+from sentence_transformers import SentenceTransformer
 from Gene.connection import Connection
 from Genome.agent_genome import AgentGenome
 from Gene.gene import PromptNode
 from Species.species import Species
+from Utils.utilities import SemanticRegistry
 
-from sentence_transformers import SentenceTransformer
-
-# 1. Define the 5 individuals as a dictionary
+# ==========================================
+# 1. MOCK DATA & TARGET DISTANCES
+# ==========================================
 genomes_data = {
     "Genome_A_1_Node": {
         "description": "Genome A - 1 Node (Baseline)",
@@ -116,87 +118,56 @@ genomes_data = {
         ]
     }
 }
+
 target_distances = {
     "Genome_A_1_Node": {
-        "Genome_A_1_Node": 0.0,
-        "Genome_AA_1_Node": 0.5,
-        "Genome_B_3_Nodes": 4.0,  # 1 node vs 3 sequential nodes
-        "Genome_C_3_Nodes": 4.0,  # 1 node vs 3 sequential nodes
-        "Genome_CC_4_Nodes": 6.5,  # 1 node vs 4 node DAG
-        "Genome_D_5_Nodes": 8.0,  # 1 node vs 5 node DAG
-        "Genome_E_7_Nodes": 9.8   # 1 node vs 7 node complex DAG (Max distance)
+        "Genome_A_1_Node": 0.0, "Genome_AA_1_Node": 0.5, "Genome_B_3_Nodes": 4.0, 
+        "Genome_C_3_Nodes": 4.0, "Genome_CC_4_Nodes": 6.5, "Genome_D_5_Nodes": 8.0, "Genome_E_7_Nodes": 9.8
     },
     "Genome_AA_1_Node": {
-        "Genome_A_1_Node": 0.5,
-        "Genome_AA_1_Node": 0.0,
-        "Genome_B_3_Nodes": 4.0,  # 1 node vs 3 sequential nodes
-        "Genome_C_3_Nodes": 4.0,  # 1 node vs 3 sequential nodes
-        "Genome_CC_4_Nodes": 6.5,  # 1 node vs 4 node DAG
-        "Genome_D_5_Nodes": 8.0,  # 1 node
-        "Genome_E_7_Nodes": 9.8   # 1 node vs 7 node complex DAG (Max distance)
+        "Genome_A_1_Node": 0.5, "Genome_AA_1_Node": 0.0, "Genome_B_3_Nodes": 4.0, 
+        "Genome_C_3_Nodes": 4.0, "Genome_CC_4_Nodes": 6.5, "Genome_D_5_Nodes": 8.0, "Genome_E_7_Nodes": 9.8
     },
     "Genome_B_3_Nodes": {
-        "Genome_A_1_Node": 4.0,
-        "Genome_AA_1_Node": 4.0,
-        "Genome_B_3_Nodes": 0.0,
-        "Genome_C_3_Nodes": 1.5,  # Same exact topology, purely tests embedding/cognitive distance
-        "Genome_CC_4_Nodes": 6.5,  # Same exact topology, purely tests embedding/cognitive distance
-        "Genome_D_5_Nodes": 6.0,  # 3 seq nodes vs 5 branched nodes
-        "Genome_E_7_Nodes": 8.5   # 3 seq nodes vs 7 branched nodes
+        "Genome_A_1_Node": 4.0, "Genome_AA_1_Node": 4.0, "Genome_B_3_Nodes": 0.0, 
+        "Genome_C_3_Nodes": 1.5, "Genome_CC_4_Nodes": 6.5, "Genome_D_5_Nodes": 6.0, "Genome_E_7_Nodes": 8.5
     },
     "Genome_C_3_Nodes": {
-        "Genome_A_1_Node": 4.0,
-        "Genome_AA_1_Node": 4.0,
-        "Genome_B_3_Nodes": 1.5,  # Same exact topology, purely tests embedding/cognitive distance
-        "Genome_C_3_Nodes": 0.0,
-        "Genome_CC_4_Nodes": 3.0,  # Same exact topology, purely tests embedding/cognitive distance
-        "Genome_D_5_Nodes": 6.0,  # 3 seq nodes vs 5 branched nodes
-        "Genome_E_7_Nodes": 8.5   # 3 seq nodes vs 7 branched nodes
+        "Genome_A_1_Node": 4.0, "Genome_AA_1_Node": 4.0, "Genome_B_3_Nodes": 1.5, 
+        "Genome_C_3_Nodes": 0.0, "Genome_CC_4_Nodes": 3.0, "Genome_D_5_Nodes": 6.0, "Genome_E_7_Nodes": 8.5
     },
     "Genome_CC_4_Nodes": {
-        "Genome_A_1_Node": 6.5,
-        "Genome_AA_1_Node": 6.5,
-        "Genome_B_3_Nodes": 3.0,  # 4 node
-        "Genome_C_3_Nodes": 2.5,  # 4 node vs 3 node (both are sequential chains, but one has an extra step)
-        "Genome_CC_4_Nodes": 0.0,
-        "Genome_D_5_Nodes": 3.0,  # 4 node vs 5 node (both are sequential chains, but one has an extra step)
-        "Genome_E_7_Nodes": 6.5   # 4 node vs 7 node complex DAG
+        "Genome_A_1_Node": 6.5, "Genome_AA_1_Node": 6.5, "Genome_B_3_Nodes": 3.0, 
+        "Genome_C_3_Nodes": 2.5, "Genome_CC_4_Nodes": 0.0, "Genome_D_5_Nodes": 3.0, "Genome_E_7_Nodes": 6.5
     },
     "Genome_D_5_Nodes": {
-        "Genome_A_1_Node": 8.0,
-        "Genome_AA_1_Node": 8.0,
-        "Genome_B_3_Nodes": 6.0,
-        "Genome_C_3_Nodes": 6.0,
-        "Genome_CC_4_Nodes": 3.0,
-        "Genome_D_5_Nodes": 0.0,
-        "Genome_E_7_Nodes": 5.0   # 5 nodes vs 7 nodes (both are branched DAGs, closer to each other than to A)
+        "Genome_A_1_Node": 8.0, "Genome_AA_1_Node": 8.0, "Genome_B_3_Nodes": 6.0, 
+        "Genome_C_3_Nodes": 6.0, "Genome_CC_4_Nodes": 3.0, "Genome_D_5_Nodes": 0.0, "Genome_E_7_Nodes": 5.0
     },
     "Genome_E_7_Nodes": {
-        "Genome_A_1_Node": 9.8,
-        "Genome_AA_1_Node": 9.8,
-        "Genome_B_3_Nodes": 8.5,
-        "Genome_C_3_Nodes": 8.5,
-        "Genome_CC_4_Nodes": 6.5,
-        "Genome_D_5_Nodes": 5.0,
-        "Genome_E_7_Nodes": 0.0
+        "Genome_A_1_Node": 9.8, "Genome_AA_1_Node": 9.8, "Genome_B_3_Nodes": 8.5, 
+        "Genome_C_3_Nodes": 8.5, "Genome_CC_4_Nodes": 6.5, "Genome_D_5_Nodes": 5.0, "Genome_E_7_Nodes": 0.0
     }
 }
 
-# Helper function to easily query the grid safely
 def get_target_distance(genome_1_id: str, genome_2_id: str) -> float:
-    """Returns the a-priori target distance between two genomes."""
     try:
         return target_distances[genome_1_id][genome_2_id]
     except KeyError:
         raise ValueError(f"One or both genome IDs not found in target grid: {genome_1_id}, {genome_2_id}")
-    
-# 2. Initialization Script
+
+# ==========================================
+# 2. INITIALIZATION SCRIPT
+# ==========================================
 def initialize_genomes(data: dict) -> list[AgentGenome]:
-    # Load the sentence transformer model
-    print("Loading SentenceTransformer model...")
-    model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+    print("Loading SentenceTransformer model (BGE)...")
+    # Swapped to the correct model that matches your 0.69 threshold
+    model = SentenceTransformer('BAAI/bge-base-en-v1.5', device='cpu')
     
     initialized_genomes = []
+    innovation_registry = SemanticRegistry() 
+    # Force a reset just in case the Singleton persisted from a previous run in the same session
+    innovation_registry.reset()
     
     for genome_key, genome_data in data.items():
         print(f"Initializing {genome_key}...")
@@ -204,7 +175,7 @@ def initialize_genomes(data: dict) -> list[AgentGenome]:
         nodes_dict = {}
         connections_dict = {}
         
-        # Instantiate Nodes and calculate embeddings
+        # Instantiate Nodes 
         for node_id, node_info in genome_data["nodes"].items():
             instruction = node_info["instruction"]
             embedding = model.encode(instruction).tolist()
@@ -213,7 +184,7 @@ def initialize_genomes(data: dict) -> list[AgentGenome]:
                 name=node_info["name"],
                 instruction=instruction,
                 embedding=embedding,
-                innovation_number=node_id # Using the dict key (e.g. 'n1') as the innovation number for clear referencing
+                innovation_number=node_id # Temporary string ID (e.g., 'n1')
             )
             nodes_dict[node_id] = node
             
@@ -236,18 +207,55 @@ def initialize_genomes(data: dict) -> list[AgentGenome]:
             end_node_innovation_number=genome_data["end_node"],
             fitness=0.0
         )
-        
+
+        # ---------------------------------------------------------
+        # CRITICAL FIX: The Topological Cascade Repair Block
+        # We must update connections alongside node keys
+        # ---------------------------------------------------------
+        for old_id in list(genome.nodes.keys()):
+            node = genome.nodes[old_id]
+            
+            new_id = innovation_registry.get_or_create_innovation_number(
+                new_embedding=node.embedding, 
+                current_genome_node_ids=set(genome.nodes.keys()), 
+                prompt_text=node.instruction,
+                old_innovation_number=-1 # -1 because the old_id is currently a string ('n1')
+            )
+            
+            if old_id != new_id:
+                node.innovation_number = new_id
+                
+                # 1. Repair Connections pointing to this node
+                for conn in list(genome.connections.values()):
+                    if conn.in_node == old_id:
+                        genome.add_connection(new_id, conn.out_node)
+                        del genome.connections[conn.innovation_number] # Remove the old connection
+                    if conn.out_node == old_id:
+                        conn.update_id(new_out_node=new_id)
+                        needs_update = True
+                        
+                        
+                # 2. Repair Global Genome References
+                if genome.start_node_innovation_number == old_id:
+                    genome.start_node_innovation_number = new_id
+                if genome.end_node_innovation_number == old_id:
+                    genome.end_node_innovation_number = new_id
+                    
+                # 3. Swap the Node in the dict safely
+                popped_node = genome.nodes.pop(old_id)
+                genome.nodes[new_id] = popped_node
+
         initialized_genomes.append(genome)
         
     return initialized_genomes
 
-# Run initialization
+# ==========================================
+# 3. EXECUTION LOOP
+# ==========================================
 if __name__ == "__main__":
     genomes_list = initialize_genomes(genomes_data)
     print(f"\nSuccessfully initialized {len(genomes_list)} genomes.")
     
-    # Map the dictionary keys to the initialized genomes
-    # (Relies on Python 3.7+ preserving dictionary insertion order)
     genome_keys = list(genomes_data.keys())
     genomes_dict = dict(zip(genome_keys, genomes_list))
 
@@ -258,7 +266,6 @@ if __name__ == "__main__":
     total_error = 0.0
     comparisons = 0
 
-    # Iterate through all unique pairs (combinations with replacement)
     for i, key1 in enumerate(genome_keys):
         for j in range(i, len(genome_keys)):
             key2 = genome_keys[j]
@@ -266,33 +273,26 @@ if __name__ == "__main__":
             genome1 = genomes_dict[key1]
             genome2 = genomes_dict[key2]
             
-            # 1. Get Expected Distance
             expected_dist = get_target_distance(key1, key2)
             
-            # 2. Calculate Actual Distance
-            # We instantiate a dummy species with genome1 as the representative
             dummy_species = Species(representative=genome1, species_id=1)
             actual_dist = dummy_species.compatibility_distance(genome2)
             
-            # 3. Calculate Difference
             diff = abs(expected_dist - actual_dist)
             total_error += diff
             comparisons += 1
             
-            # Format a clean pairing name (e.g., "A_1_Node vs B_3_Nodes")
             name1 = key1.replace("Genome_", "")
             name2 = key2.replace("Genome_", "")
             pair_name = f"{name1} vs {name2}"
             
-            # Print formatted result
             print(f"{pair_name:<35} | {expected_dist:>8.2f} | {actual_dist:>8.2f} | {diff:>6.2f}")
 
-    # Summary for Hyperparameter Tuning
     avg_error = total_error / comparisons
     print("-" * 65)
     print(f"Average Absolute Error: {avg_error:.3f}")
     print("=================================================================")
-    print("Tuning Guide for the Species Class:")
+    print("Tuning Guide for the Species Class (Linear Output Space):")
     print("- To increase penalty for structural differences: Increase `c_nodes` and `c_edges`")
     print("- To increase penalty for cognitive/instruction differences: Increase `c_weight`")
     print(f"- Current Tuning Goal: Lower the Average Error from {avg_error:.3f} to as close to 0.0 as possible.")

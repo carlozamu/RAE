@@ -38,18 +38,13 @@ class Crossover:
 
         # 3. Inherit Connections
         for conn_id, better_conn in better_parent.connections.items():
-            if conn_id in worse_parent.connections:
-                worse_conn = worse_parent.connections[conn_id]
-                inherited_conn = better_conn.copy() if np.random.rand() < 0.5 else worse_conn.copy()
-                    
-                offspring.connections[conn_id] = inherited_conn
-            else:
-                offspring.connections[conn_id] = better_conn.copy()
+            offspring.connections[conn_id] = better_conn.copy()
 
         if equal_fitness:
             for conn_id, worse_conn in worse_parent.connections.items():
                 if conn_id not in better_parent.connections:
-                    offspring.connections[conn_id] = worse_conn.copy()
+                    if worse_conn.in_node in offspring.nodes and worse_conn.out_node in offspring.nodes:
+                        offspring.connections[worse_conn.innovation_number] = worse_conn.copy()
 
         # 4. Fix Graph Integrity
         # Step A: Disable any cycles created by merging the two graphs

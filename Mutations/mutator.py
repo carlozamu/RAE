@@ -3,7 +3,7 @@ import copy
 from Genome.agent_genome import AgentGenome
 from Gene.gene import PromptNode
 from Gene.connection import Connection
-from Utils.utilities import _get_next_innovation_number
+from Utils.utilities import SemanticRegistry
 #from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
 
@@ -80,13 +80,13 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         
         # --- 1. Global Rate Calculations --- (for a mature graph there is a 50% chance of not mutating at all)
         # Architectural Decay: Cools down global topology changes over generations
-        if generation < 1:
+        if generation < 2:
             p_arch = 0.00 # No architectural mutations in Gen 0 to allow initial population since no action can be taken
-            p_gene = 0.75 # High gene mutation rate to encourage content diversity from the start
+            p_gene = 0.8 # High gene mutation rate to encourage content diversity from the start
         else:
-            p_arch = max(0.35, 0.75 ** (generation + 1))
+            p_arch = max(0.35, 0.75 ** (generation - 1))
             # Gene Mutation: Ensures roughly 1 mutation per child graph
-            p_gene = max(0.15, 0.75 / max(1, node_count))
+            p_gene = max(0.25, 0.75 ** (generation - 1))
 
         # --- 2. Architectural Probabilities (Thermostat to N=7) ---
         
@@ -132,12 +132,12 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             },
             
             "gene_probs": {
-                MutType.GENE_SPLIT:            lerp(0.35, 0.05, alpha),
-                MutType.GENE_INJECT_REASONING: lerp(0.25, 0.10, alpha),
-                MutType.GENE_EXPAND:           lerp(0.15, 0.05, alpha),
-                MutType.GENE_ADD_PERSONA:      lerp(0.10, 0.15, alpha),
-                MutType.GENE_REFORMULATE:      lerp(0.15, 0.35, alpha),
-                MutType.GENE_SIMPLIFY:         lerp(0.00, 0.30, alpha)
+                MutType.GENE_SPLIT:            lerp(0.50, 0.10, alpha),
+                MutType.GENE_INJECT_REASONING: lerp(0.15, 0.15, alpha),
+                MutType.GENE_EXPAND:           lerp(0.15, 0.20, alpha),
+                MutType.GENE_ADD_PERSONA:      lerp(0.15, 0.05, alpha),
+                MutType.GENE_REFORMULATE:      lerp(0.05, 0.30, alpha),
+                MutType.GENE_SIMPLIFY:         lerp(0.00, 0.20, alpha)
             }
         }
     def __init__(self, breeder_llm_client: LLM, default_config=None):
@@ -146,6 +146,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         :param default_config: Optional dict to override DEFAULT_CONFIG permanently.
         """
         self.llm = breeder_llm_client
+        self.semantic_registry = SemanticRegistry()
         
         # Set the baseline configuration
         self.baseline_config = copy.deepcopy(self.DEFAULT_CONFIG)
@@ -219,7 +220,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         if not genome.connections: return
 
         # choose a radnom connection to split
-        connection = random.choice(list(genome.connections.values()))
+        connection = random.choice(list(c for c in genome.connections.values() if c.enabled))
         if not connection: return
 
         # get name and instructions of the in_node and out_node
@@ -228,6 +229,8 @@ mutator = Mutator(breeder_llm, config=tuning_config)
 
         # create a new node and insert it between in_node and out_node of the chosen connection
         new_node: PromptNode = await self._generate_new_node(in_node.name, in_node.instruction, out_node.name, out_node.instruction)
+        innovation_number =self.semantic_registry.get_or_create_innovation_number(new_node.embedding, set(genome.nodes.keys()), new_node.instruction)
+        new_node.innovation_number = innovation_number
         genome.add_node(new_node)
         # disable the chosen connection
         connection.enabled = False
@@ -245,15 +248,13 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         incoming_node_innovation_numbers = []
         outgoing_node_innovation_numbers = []
         
-        for conn in genome.connections.values():
-            if not conn.enabled: continue
-            
+        for conn in list(genome.connections.values()):            
             if conn.out_node == node_innovation_number:
                 incoming_node_innovation_numbers.append(conn.in_node)
-                conn.enabled = False
+                del genome.connections[f"{conn.in_node}.{conn.out_node}"] # Remove the connection from the genome
             elif conn.in_node == node_innovation_number:
                 outgoing_node_innovation_numbers.append(conn.out_node)
-                conn.enabled = False
+                del genome.connections[f"{conn.in_node}.{conn.out_node}"] # Remove the connection from the genome          
         
         random.shuffle(incoming_node_innovation_numbers)
         random.shuffle(outgoing_node_innovation_numbers)
@@ -275,7 +276,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
                 genome.add_connection(in_innovation_number, out_innovation_number)
 
         # 5. Delete the Node
-        genome.nodes.pop(node_innovation_number, None)
+        genome.nodes.pop(node_innovation_number)
         #md_logger.log_event(f"Removed node '{node_innovation_number}' and reconnected its neighbors.")
 
     def _handle_add_connection(self, genome: AgentGenome):
@@ -341,50 +342,32 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             
     def _handle_remove_connection(self, genome: AgentGenome):
         """
-        Removes a random connection, ensuring graph integrity.
-        Constraints:
-        1. The Source node must have at least one OTHER output.
-        2. The Target node must have at least one OTHER input.
-        Complexity: O(E)
+        Removes a random connection, ensuring global graph integrity.
+        Constraints: The Start Node MUST maintain at least one valid path to the End Node.
         """
         if not genome.connections: return
         
-        # 0. If the graph is already minimal skip
         active_connections = [c for c in genome.connections.values() if c.enabled]
         if len(active_connections) < len(genome.nodes):
             return
 
-        # 1. Build Degree Maps (Pass 1)
-        # We need to know how many active connections start/end at each node
-        in_degree = {}  # Key: NodeID, Value: Count
-        out_degree = {} # Key: NodeID, Value: Count
+        # 1. Shuffle candidates so we test them randomly
+        candidates = active_connections.copy()
+        random.shuffle(candidates)
 
-        for conn in active_connections:
-            # Count Outputs (Source)
-            out_degree[conn.in_node] = out_degree.get(conn.in_node, 0) + 1
-            # Count Inputs (Target)
-            in_degree[conn.out_node] = in_degree.get(conn.out_node, 0) + 1
-
-        # 2. Find Valid Candidates (Pass 2)
-        candidates: list[Connection] = []
-        for conn in active_connections:
-            # Check if removing this connection leaves nodes stranded
-            source_safe = out_degree.get(conn.in_node, 0) > 1
-            target_safe = in_degree.get(conn.out_node, 0) > 1
-            
-            if source_safe and target_safe:
-                candidates.append(conn)
-
-        # 3. Execute
-        if candidates:
-            target_conn = random.choice(candidates)
-            #print(f"Global: Removing connection {target_conn.in_node}... -> {target_conn.out_node}...")
+        # 2. Test and Revert (Global Integrity Check)
+        for target_conn in candidates:
             target_conn.enabled = False
-            #md_logger.log_event(f"""Removed connection from '{genome.nodes[target_conn.in_node].name}' to '{genome.nodes[target_conn.out_node].name}'""")
-        #else:
-            #print("Global: No removable connections found (all are critical bridges).")
+            
+            # Check if Start can still reach End
+            if genome.verify_all_paths_lead_to_end():
+                return 
+            else:
+                target_conn.enabled = True
+                
+        # print("Global: No removable connections found (all are critical bridges).")
 
-    # ------- Main Mutation Logic -------
+# ------- Main Mutation Logic -------
     async def mutate(self, genome: AgentGenome, current_generation:int=0) -> AgentGenome:
         """
         Main entry point. Returns a mutated CLONE of the genome.
@@ -451,20 +434,19 @@ mutator = Mutator(breeder_llm, config=tuning_config)
                 if mut_type == MutType.GENE_SPLIT:
                     await self._handle_split(genome, node)
                 elif mut_type == MutType.GENE_EXPAND:
-                    await self._handle_content_mutation(genome.nodes[node], "expand")
+                    await self._handle_content_mutation(genome, node, "expand")
                 elif mut_type == MutType.GENE_ADD_PERSONA:
-                    await self._handle_content_mutation(genome.nodes[node], "persona")
+                    await self._handle_content_mutation(genome, node, "persona")
                 elif mut_type == MutType.GENE_INJECT_REASONING:
-                    await self._handle_content_mutation(genome.nodes[node], "reasoning")
+                    await self._handle_content_mutation(genome, node, "reasoning")
                 elif mut_type == MutType.GENE_SIMPLIFY:
-                    await self._handle_content_mutation(genome.nodes[node], "simplify")
+                    await self._handle_content_mutation(genome, node, "simplify")
                 elif mut_type == MutType.GENE_REFORMULATE:
-                    await self._handle_content_mutation(genome.nodes[node], "reformulate")
+                    await self._handle_content_mutation(genome, node, "reformulate")
 
-                checkpoint = 0
     # --- Specific Mutation Handlers ---
 
-    async def _handle_split(self, genome: AgentGenome, target_node: str):
+    async def _handle_split(self, genome: AgentGenome, target_node: int):
         """
         Hybrid Mutation: Splits one node into two sequential nodes.
         Strategy: Cell Division (Preserve A, Create B, Link A->B)
@@ -479,51 +461,54 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         genome.nodes[target_node].instruction = prompt1
         genome.nodes[target_node].name = name1
         genome.nodes[target_node].embedding = self.llm.get_embedding(prompt1)
+        innovation_number1 =self.semantic_registry.get_or_create_innovation_number(genome.nodes[target_node].embedding, set(genome.nodes.keys()), genome.nodes[target_node].instruction, target_node)
+        genome.nodes[target_node].innovation_number = innovation_number1
+        if innovation_number1 != target_node:
+            node = genome.nodes.pop(target_node)
+            genome.add_node(node) # Update the node in the genome with new content and embedding
         
-        new_gene = genome.nodes[target_node].copy()
+        new_gene = genome.nodes[innovation_number1].copy()
         new_gene.name = name2
         new_gene.instruction = prompt2
         new_gene.embedding = self.llm.get_embedding(prompt2)
-        new_gene.innovation_number = _get_next_innovation_number()
-
+        innovation_number2 =self.semantic_registry.get_or_create_innovation_number(new_gene.embedding, set(genome.nodes.keys()), new_gene.instruction)
+        new_gene.innovation_number = innovation_number2
         genome.add_node(new_gene)
 
-        # 3. Manage Output Connections
+        # 3. Manage Connections
         # We need to find all connections LEAVING the target_node and move them to B.
-        conns_to_disable: list[Connection] = []
-        conns_to_create: list[str] = []
 
-        for conn in genome.connections.values():
-            if not conn.enabled: continue
-            
+        for conn in list(genome.connections.values()):            
             # If connection goes OUT from A -> [Next]
-            if conn.in_node == target_node:
-                # We will disable this old connection
-                conns_to_disable.append(conn)
-                # And create a new one: B -> [Next]
-                conns_to_create.append((conn.out_node))
+            if conn.in_node == target_node and innovation_number2 != target_node: # Avoid self loops in case the innovation number did't change
+                genome.add_connection(innovation_number2, conn.out_node) # move to new node B
+                del genome.connections[f"{target_node}.{conn.out_node}"] # Remove old connection
+                #print(f"Addedd connection {innovation_number2} -> {conn.out_node} (moved from {target_node} -> {conn.out_node})")
+                continue
 
-        # Apply topology changes
-        
-        # A. Disable old outgoing connections from A
-        if conns_to_disable:
-            for conn in conns_to_disable:
-                conn.enabled = False
+            # If connection goes IN from [Prev] -> A
+            elif conn.out_node == target_node and innovation_number1 != target_node: # Avoid self loops in case the innovation number did't change
+                genome.add_connection(conn.in_node, innovation_number1) # Re-add with updated key
+                del genome.connections[f"{conn.in_node}.{target_node}"] # Remove old connection
+                #print(f"Addedd connection {conn.in_node} -> {innovation_number1} (moved from {conn.in_node} -> {target_node})")
+                continue
 
         # B. Create the Bridge: A -> B
-        genome.add_connection(target_node, new_gene.innovation_number)
+        genome.add_connection(innovation_number1, innovation_number2)
+        #print(f"Added connection {innovation_number1} -> {innovation_number2} (split from {target_node})")
 
-        # C. Create the new outgoing connections from B
-        if conns_to_create:
-            for out_innovation_number in conns_to_create:
-                genome.add_connection(new_gene.innovation_number, out_innovation_number)
+        # Edge case: If it was the end or start node, switch the end_innovation_number to the new node
+        if target_node == genome.end_node_innovation_number:
+            genome.end_node_innovation_number = innovation_number2
+        if target_node == genome.start_node_innovation_number:
+            genome.start_node_innovation_number = innovation_number1
+        
+        #print(f"Split: '{genome.nodes[innovation_number1].name}'({target_node}) --> '{genome.nodes[innovation_number1].name}'({innovation_number1}) + '{genome.nodes[innovation_number2].name}'({innovation_number2})")
 
-        # Edge case: If it was the end node, switch the end_innovation_number to the new node
-        if genome.nodes[target_node].innovation_number == genome.end_node_innovation_number:
-            genome.end_node_innovation_number = new_gene.innovation_number
-
-    async def _handle_content_mutation(self, node: PromptNode, style: str):
+    async def _handle_content_mutation(self, genome: AgentGenome, node_id: int, style: str):
         """Applies the specified mutation to the node."""
+
+        node = genome.nodes[node_id]
 
         #print(f"Applying {style} mutation to node: {node.name}\nOriginal: {node.instruction}")
 
@@ -696,6 +681,30 @@ Mutated Version: """
         if response and len(response.strip()) > 5:
             node.instruction = response.strip()
             node.embedding = self.llm.get_embedding(response)
+            innovation_number =self.semantic_registry.get_or_create_innovation_number(node.embedding, set(genome.nodes.keys()), node.instruction, node_id)
+            
+            if node_id != innovation_number:
+                node.innovation_number = innovation_number
+                #print(f"Updated innovation number for {node.name} from {node_id} to {innovation_number}")
+                # If the innovation number changed, we need to update connections that point to this node
+                for conn in list(genome.connections.values()):
+                    if conn.in_node == node_id:
+                        genome.add_connection(innovation_number, conn.out_node) # Re-add with updated key
+                        del genome.connections[f"{node_id}.{conn.out_node}"]
+                        #print(f"Updated connection from {node_id} -> {conn.out_node} to {innovation_number} -> {conn.out_node}")
+                        continue
+                    elif conn.out_node == node_id:
+                        genome.add_connection(conn.in_node, innovation_number) # Re-add with updated key
+                        del genome.connections[f"{conn.in_node}.{node_id}"]   
+                        #print(f"Updated connection from {conn.in_node} -> {node_id} to {conn.in_node} -> {innovation_number}")
+                        continue
+                # If this node was the start or end node, we need to update the genome's reference
+                if node_id == genome.start_node_innovation_number:
+                    genome.start_node_innovation_number = innovation_number
+                if node_id == genome.end_node_innovation_number:
+                    genome.end_node_innovation_number = innovation_number
+                node = genome.nodes.pop(node_id)
+                genome.add_node(node) # Update the node in the genome list
         else:
             print(f"Failed to generate new instruction for {node.name}. Retaining original.")
             
@@ -741,7 +750,7 @@ Constraint: You must output exactly ONE intermediate step using the strict forma
             instruction = full_text.split("Instr:")[1].strip()
             
             embedding = self.llm.get_embedding(instruction)
-            return PromptNode(name, instruction, embedding=embedding, innovation_number=_get_next_innovation_number())
+            return PromptNode(name, instruction, embedding=embedding, innovation_number=-1)
             
         except Exception as e:
             # print(f"Bridge Parsing Failed: {e}. Using cognitive fallback.")
@@ -750,7 +759,7 @@ Constraint: You must output exactly ONE intermediate step using the strict forma
             fallback_instruction = "Review the deductions made so far and explicitly map out the logical dependencies required for the next step."
             fallback_embedding = self.llm.get_embedding(fallback_instruction)
             
-            return PromptNode("Logical_Bridge", fallback_instruction, embedding=fallback_embedding, innovation_number=_get_next_innovation_number())
+            return PromptNode("Logical_Bridge", fallback_instruction, embedding=fallback_embedding, innovation_number=-1)
     
     async def _split_instructions(self, original_instruction: str, original_name: str) -> tuple[str, str, str, str]:
         """

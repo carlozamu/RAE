@@ -1,4 +1,5 @@
 from math import inf
+import os
 from typing import Dict, Any
 from Gene.gene import PromptNode
 from Genome.agent_genome import AgentGenome
@@ -14,6 +15,40 @@ class Phenotype:
         # 1. Get Plan
         # execution_order is [(NodeObject, [Parent_IDs]), ...]
         execution_order: list[tuple[PromptNode, list[int]]] = self.genome.get_execution_order() 
+
+        # 1. Build the execution sequence as a formatted Markdown string list
+        order_lines = []
+        for step_idx, (node, parents) in enumerate(execution_order):
+            # Cleanly format the dependencies (parents)
+            parent_str = f"(Waits for Nodes: {parents})" if parents else "(No dependencies)"
+            
+            # Combine all node data into a clean Markdown bullet point
+            order_lines.append(
+                f"{step_idx + 1}. **Node {node.innovation_number}** {parent_str}  \n"
+                f"   *Name*: {node.name}  \n"
+                f"   *Instr*: `{node.instruction}`"
+            )
+            
+        # Join them with double newlines for proper spacing in Markdown
+        formatted_order = "\n\n".join(order_lines)
+
+        # 2. Ensure the logs directory exists
+        log_file = "Utils/Logs/server_logs.md"
+        import os # Make sure os is imported
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        
+        # 3. Construct the formatted Markdown entry
+        log_entry = f"""
+### 🧬 Evaluating Genome: `{self.genome.id}` 
+**⚙️ Topological Execution Order:**
+
+{formatted_order}
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
+        
+        # 4. Append the message to the markdown file
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(log_entry.lstrip('\n') + "\n\n")
         
         # 2. Lightweight Memory (ID -> Instructions, Answer String)
         trait_answers: Dict[int, tuple[str, str]] = {}

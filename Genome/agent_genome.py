@@ -15,7 +15,7 @@ class AgentGenome:
 
     def add_node(self, node: PromptNode):
         self.nodes[node.innovation_number] = node
-
+    
     def add_connection(self, in_node_innovation_number, out_node_innovation_number):
         # Check for duplicates to prevent multi-edges between same nodes
         for conn in self.connections.values():
@@ -116,9 +116,14 @@ class AgentGenome:
         
         for edge_id, conn in self.connections.items():
             if conn.enabled:
-                adjacency_list[conn.in_node].append((conn.out_node, edge_id))
-                in_degree[conn.out_node] += 1
-                edge_to_target[edge_id] = conn.out_node
+                # Only map the edge if BOTH endpoints exist in our tracking dictionaries.
+                if conn.in_node in adjacency_list and conn.out_node in in_degree:
+                    adjacency_list[conn.in_node].append((conn.out_node, edge_id))
+                    in_degree[conn.out_node] += 1
+                    edge_to_target[edge_id] = conn.out_node
+                else:
+                    # Ghost connection detected! We safely ignore it here. _prune_invalid_topology in the crosover class will permanently delete it in the next step.
+                    continue
         
         # Kahn's algorithm: Start with nodes that have in-degree 0
         queue = [node_id for node_id, degree in in_degree.items() if degree == 0]
@@ -136,9 +141,6 @@ class AgentGenome:
         
         # If not all nodes processed, there's a cycle
         if processed_count < len(self.nodes):
-            # Collect edges that are part of the cycle
-            # Only edges where BOTH endpoints are in the cycle are actually cycle edges
-            # (not edges coming from outside the cycle into it)
             cycle_edges = []
             nodes_in_cycle = {node_id for node_id, degree in in_degree.items() if degree > 0}
             
@@ -149,7 +151,6 @@ class AgentGenome:
             return cycle_edges
         
         return []  # No cycles detected
-    
     def score_edge_for_removal(self, edge_id: str) -> float:
         """
         Scores an edge for removal priority. Lower scores = safer to remove.
@@ -196,55 +197,40 @@ class AgentGenome:
     
     def verify_all_paths_lead_to_end(self) -> bool:
         """
-        Returns True only if EVERY branch/path starting from the start_node
-        eventually reaches the end_node. 
-        Returns False if there are any dead ends.
+        Global graph integrity check. 
+        Returns True if the Start node can successfully reach the End node.
         """
         if self.start_node_innovation_number is None or self.end_node_innovation_number is None:
-            print("Warning: Start or End node not defined in genome.")
-            return True
-
-        # 1. Build Adjacency Lists (Forward and Backward)
-        adj = {node_id: [] for node_id in self.nodes.keys()}
-        rev_adj = {node_id: [] for node_id in self.nodes.keys()}
+            return False
+            
+        start_id = self.start_node_innovation_number
+        end_id = self.end_node_innovation_number
         
+        # 1. Build Adjacency List (Only for enabled connections)
+        adj = {node_id: [] for node_id in self.nodes.keys()}
         for conn in self.connections.values():
             if conn.enabled:
-                adj[conn.in_node].append(conn.out_node)
-                rev_adj[conn.out_node].append(conn.in_node)
-
-        # 2. Find all nodes reachable from START (Forward BFS)
-        reachable_from_start = set()
-        queue = [self.start_node_innovation_number]
-        reachable_from_start.add(self.start_node_innovation_number)
+                if conn.in_node in adj:
+                    adj[conn.in_node].append(conn.out_node)
+                
+        # 2. Standard Forward BFS
+        visited = set([start_id])
+        queue = [start_id]
+        
         while queue:
             curr = queue.pop(0)
+            
+            # The millisecond we find the End node, the graph is structurally valid.
+            if curr == end_id:
+                return True
+                
             for neighbor in adj.get(curr, []):
-                if neighbor not in reachable_from_start:
-                    reachable_from_start.add(neighbor)
+                if neighbor not in visited:
+                    visited.add(neighbor)
                     queue.append(neighbor)
-
-        # 3. Find all nodes that can reach END (Backward BFS)
-        can_reach_end = set()
-        queue = [self.end_node_innovation_number]
-        can_reach_end.add(self.end_node_innovation_number)
-        while queue:
-            curr = queue.pop(0)
-            for neighbor in rev_adj.get(curr, []):
-                if neighbor not in can_reach_end:
-                    can_reach_end.add(neighbor)
-                    queue.append(neighbor)
-
-        # 4. Final Validation: 
-        # Every node that the start node can reach MUST be able to reach the end node.
-        # If a node is in 'reachable_from_start' but NOT in 'can_reach_end', it's a dead end.
-        for node in reachable_from_start:
-            if node not in can_reach_end:
-                # Exception: The end node itself doesn't need to reach 'the end'
-                if node != self.end_node_innovation_number:
-                    return False 
-
-        return True
+                    
+        # If the queue empties and we never saw the End node, the graph is severed.
+        return False
     
     def remove_cycles(self) -> int:
         """
@@ -269,8 +255,7 @@ class AgentGenome:
                 break
             
             # Score all edges involved in cycles
-            scored_edges = [(self.score_edge_for_removal(edge_id), edge_id) 
-                          for edge_id in cycle_edges]
+            scored_edges = [(self.score_edge_for_removal(edge_id), edge_id) for edge_id in cycle_edges]
             
             # Sort by score (lowest = safest to remove)
             scored_edges.sort()

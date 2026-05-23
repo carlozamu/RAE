@@ -8,13 +8,16 @@ from Genome.agent_genome import AgentGenome
 from Species.species import Species
 from Species.species_breeder import SpeciesBreeder
 
+MAX_SHIFT = 100.0 # Maximum allowed change to the compatibility threshold per generation to prevent oscillation
+INITIAL_THRESHOLD = 5.0
+
 class SpeciationEngine:
     def __init__(self, 
                  breeder: SpeciesBreeder,
                  target_population_size: int = 50,
                  target_species_count: int = 4, # Single target for the P-Controller
                  dropoff_age: int = 10,
-                 proportional_step: float = 0.25
+                 proportional_step: float = 0.5
                  ):
         """
         Args:
@@ -30,7 +33,7 @@ class SpeciationEngine:
         self.proportional_step = proportional_step
 
         self.species_list: List[Species] = []
-        self.compatibility_threshold = 1.5 # Starting point, will be dynamically tuned
+        self.compatibility_threshold = INITIAL_THRESHOLD # Starting point, will be dynamically tuned
         self.species_id_counter = 0
 
     async def step_generation(self, generation: int) -> List[AgentGenome]:
@@ -68,30 +71,36 @@ class SpeciationEngine:
 
         self.species_list = active_species
 
-        # --- 3. EXPLICIT FITNESS SHARING (Resource Allocation) ---
-        species_target_sizes = self._calculate_offspring_allocation()
+        # --- 3. GLOBAL ELITISM ---
+        # Pool every single member across all species into a flat list
+        all_global_members = [member for s in self.species_list for member in s.members]
+        
+        # Sort by fitness descending to find the absolute best
+        all_global_members.sort(key=lambda x: x.fitness, reverse=True)
+        
+        # Slice the top 3 (or fewer, if the population is extremely small)
+        global_elites = all_global_members[:3]
+        num_elites = len(global_elites)
 
-        # --- 4. BREEDING (Calling the Micro-Layer) ---
+        # --- 4. EXPLICIT FITNESS SHARING (Resource Allocation) ---
+        # Pass the number of elites so the allocator knows how many slots are left
+        species_target_sizes = self._calculate_offspring_allocation(num_elites)
+
+        # --- 5. BREEDING (Calling the Micro-Layer) ---
         next_generation_global: List[AgentGenome] = []
 
-        # Elitism: copy the absolute best individual
-        best_individual: AgentGenome = None
-        for s in self.species_list:
-            best_in_species = max(s.members, key=lambda x: x.fitness)
-            if best_individual is None or best_in_species.fitness > best_individual.fitness:
-                best_individual = best_in_species
-        
-        if best_individual is not None:
-            next_generation_global.append(best_individual.copy())
+        # Immediately clone the top 3 global elites into the next generation untouched
+        for elite in global_elites:
+            next_generation_global.append(elite.copy())
         
         for species in self.species_list:
             target_size = species_target_sizes.get(species.id, 0)
             if target_size > 0:
-                # Delegate to the micro-layer we built previously!
+                # Delegate to the micro-layer
                 offspring = await self.breeder.breed_next_generation(species.members, target_size, generation=generation)
                 next_generation_global.extend(offspring)
 
-        # --- 5. PREPARE FOR NEXT GENERATION ---
+        # --- 6. PREPARE FOR NEXT GENERATION ---
         # Pick new representatives and clear the buckets
         self.species_list = [s for s in self.species_list if species_target_sizes.get(s.id, 0) > 0]
         for s in self.species_list:
@@ -101,19 +110,39 @@ class SpeciationEngine:
 
     def _speciate_population(self, population: List[AgentGenome]):
         """Routes each genome into the appropriate species bucket."""
+
+        new_species_list: list[Species] = []
+
         for genome in population:
+            distances = []
             found_species = False
             for species in self.species_list:
-                if species.compatibility_distance(genome) < self.compatibility_threshold:
+                distance = species.compatibility_distance(genome)
+                distances.append(f"{distance:.2f}")
+                if distance < self.compatibility_threshold:
+                    species.add_member(genome)
+                    found_species = True
+                    break
+            
+            for species in new_species_list:
+                distance = species.compatibility_distance(genome)
+                distances.append(f"{distance:.2f}")
+                if distance < self.compatibility_threshold:
                     species.add_member(genome)
                     found_species = True
                     break
             
             # If it doesn't fit anywhere, create a new niche
             if not found_species:
+                print(f"New Species Detected: {distances} | Threshold: {self.compatibility_threshold:.2f}")
                 new_species = Species(representative=genome, species_id=self.species_id_counter)
                 self.species_id_counter += 1
-                self.species_list.append(new_species)
+                new_species_list.append(new_species)
+
+        self.species_list.extend(new_species_list)
+
+        # Sort species by fitness
+        self.species_list.sort(key=lambda x: x.get_average_fitness(), reverse=True)
                 
         # Remove empty species (can happen if a representative's niche dies out)
         self.species_list = [s for s in self.species_list if len(s.members) > 0]
@@ -126,45 +155,49 @@ class SpeciationEngine:
         num_species = len(self.species_list)
         
         # 1. Calculate how far we are from the ideal target (e.g., 4)
-        error = self.target_species_count - num_species
+        error = num_species - self.target_species_count
     
         # 3. Calculate adjustment
-        adjustment = error * self.proportional_step
+        adjustment = 0
+        adjustment = self.proportional_step * error
+        shift = max(-MAX_SHIFT, min(MAX_SHIFT, adjustment))
         
         # 4. Apply adjustment (with a hard floor to prevent the threshold from reaching 0 or negatives)
-        self.compatibility_threshold = max(0.3, self.compatibility_threshold + adjustment)
+        self.compatibility_threshold = self.compatibility_threshold + shift
         
         # Optional: Print for debugging so you can watch the P-Controller work
         # print(f"   [Thermostat] Species: {num_species} (Target: {self.target_species_count}) | Error: {error} | Adjustment: {adjustment:+.3f} | New Threshold: {self.compatibility_threshold:.3f}")
 
-    def _calculate_offspring_allocation(self) -> dict:
-        """Determines exactly how many of the 50 slots each species gets."""
+    def _calculate_offspring_allocation(self, num_elites: int) -> dict:
+        """Determines exactly how many of the remaining slots each species gets."""
         if not self.species_list:
             return {}
 
-        # 1. Calculate the shared average fitness of each species
         avg_fitnesses = {s.id: s.get_average_fitness() for s in self.species_list}
         total_average = sum(avg_fitnesses.values())
 
         allocation = {}
         allocated_so_far = 0
+        
+        # The total number of slots available for actual breeding
+        offspring_target = max(0, self.target_population_size - num_elites)
 
         # Edge Case: Everyone scored 0. Distribute evenly.
         if total_average == 0:
-            slots_per = (self.target_population_size - 1) // len(self.species_list)
+            slots_per = offspring_target // len(self.species_list) if self.species_list else 0
             for s in self.species_list:
                 allocation[s.id] = slots_per
                 allocated_so_far += slots_per
         else:
             # 2. Allocate proportionally
             for s in self.species_list:
-                exact_allocation = (avg_fitnesses[s.id] / total_average) * (self.target_population_size - 1)
+                exact_allocation = (avg_fitnesses[s.id] / total_average) * offspring_target
                 granted_slots = int(exact_allocation) # Floor it
                 allocation[s.id] = granted_slots
                 allocated_so_far += granted_slots
 
         # 3. Handle leftover slots due to rounding (give them to the best performing species)
-        leftovers = (self.target_population_size - 1) - allocated_so_far
+        leftovers = offspring_target - allocated_so_far
         if leftovers > 0:
             # Sort species by average fitness, descending
             sorted_species_ids = sorted(avg_fitnesses, key=avg_fitnesses.get, reverse=True)
@@ -173,4 +206,4 @@ class SpeciationEngine:
                 allocation[lucky_species] += 1
 
         return allocation
-    
+     

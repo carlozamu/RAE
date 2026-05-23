@@ -112,7 +112,7 @@ async def evaluate_baseline_batch(
     total_problems = len(problem_batch)
     
     overall_accuracy = (total_correct / total_problems) * 100 if total_problems > 0 else 0
-    overall_fitness = total_score
+    overall_fitness = (total_score / total_problems) * 100 if total_problems > 0 else 0
 
     # Return stats for main.py to log/plot
     return {
