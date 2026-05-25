@@ -109,15 +109,15 @@ class AgentGenome:
         Returns list of connection IDs that are part of cycles.
         If the graph is a DAG, returns empty list.
         """
+        node_keys = list(self.nodes.keys())
         # Build adjacency list and calculate in-degrees (only enabled connections)
-        adjacency_list = {node_id: [] for node_id in self.nodes.keys()}
-        in_degree = {node_id: 0 for node_id in self.nodes.keys()}
+        adjacency_list = {node_id: [] for node_id in node_keys}
+        in_degree = {node_id: 0 for node_id in node_keys}
         edge_to_target = {}  # Maps edge_id -> target node for tracking
         
-        for edge_id, conn in self.connections.items():
+        for edge_id, conn in list(self.connections.items()):
             if conn.enabled:
-                # Only map the edge if BOTH endpoints exist in our tracking dictionaries.
-                if conn.in_node in adjacency_list and conn.out_node in in_degree:
+                if conn.in_node in node_keys and conn.out_node in node_keys:
                     adjacency_list[conn.in_node].append((conn.out_node, edge_id))
                     in_degree[conn.out_node] += 1
                     edge_to_target[edge_id] = conn.out_node
@@ -127,6 +127,8 @@ class AgentGenome:
         
         # Kahn's algorithm: Start with nodes that have in-degree 0
         queue = [node_id for node_id, degree in in_degree.items() if degree == 0]
+        if len(queue) > 1:
+            print(f"Warning: Multiple start nodes detected in cycle detection. Queue: {queue}")
         processed_count = 0
         
         while queue:

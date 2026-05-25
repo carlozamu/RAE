@@ -401,6 +401,9 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         await self._apply_gene_mutations(mutated_genome, p_mutate_node, gene_cdf)
         #md_logger.log_event(f"Applied mutations to {len(mutated_genome.nodes)} nodes")
 
+        # 6. Check for genome consistency
+        mutated_genome.remove_cycles()
+
         return mutated_genome
 
     # --- Internal Logic ---

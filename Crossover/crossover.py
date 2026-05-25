@@ -21,20 +21,24 @@ class Crossover:
         offspring.end_node_innovation_number = better_parent.end_node_innovation_number
 
         # 2. Inherit Nodes (FIXED: 50/50 Semantic Inheritance)
+        worst_parent_node_ids = set(worse_parent.nodes.keys())
         for node_id, better_node in better_parent.nodes.items():
-            if node_id in worse_parent.nodes:
+            if node_id in worst_parent_node_ids:
                 # Node exists in both: 50/50 chance to get exact prompt semantics from either
-                worse_node = worse_parent.nodes[node_id]
-                offspring.nodes[node_id] = better_node.copy() if np.random.rand() < 0.5 else worse_node.copy()
+                random_number = np.random.rand()
+                if random_number < 0.5:
+                    offspring.nodes[node_id] = better_node.copy()
+                else:
+                    offspring.nodes[node_id] = worse_parent.nodes[node_id].copy()
             else:
                 # Disjoint/Excess in better parent
                 offspring.nodes[node_id] = better_node.copy()
                 
         if equal_fitness:
             # Union the remaining disjoint/excess nodes from worse parent
-            for node_id, worse_node in worse_parent.nodes.items():
-                if node_id not in offspring.nodes:
-                    offspring.nodes[node_id] = worse_node.copy()
+            for _id in worst_parent_node_ids:
+                if _id not in list(offspring.nodes.keys()):
+                    offspring.nodes[_id] = worse_parent.nodes[_id].copy()
 
         # 3. Inherit Connections
         for conn_id, better_conn in better_parent.connections.items():
@@ -42,16 +46,13 @@ class Crossover:
 
         if equal_fitness:
             for conn_id, worse_conn in worse_parent.connections.items():
-                if conn_id not in better_parent.connections:
-                    if worse_conn.in_node in offspring.nodes and worse_conn.out_node in offspring.nodes:
-                        offspring.connections[worse_conn.innovation_number] = worse_conn.copy()
+                if conn_id not in list(offspring.connections.keys()):
+                    offspring_nodes_list = list(offspring.nodes.keys())
+                    if worse_conn.in_node in offspring_nodes_list and worse_conn.out_node in offspring_nodes_list:
+                        offspring.connections[conn_id] = worse_conn.copy()
 
         # 4. Fix Graph Integrity
-        # Step A: Disable any cycles created by merging the two graphs
         offspring.remove_cycles()
-        
-        # Step B: Prune faulty/orphaned topology (NEW)
-        Crossover._prune_invalid_topology(offspring)
         
         return offspring
 
