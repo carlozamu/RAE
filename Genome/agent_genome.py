@@ -12,6 +12,8 @@ class AgentGenome:
         self.start_node_innovation_number = start_node_innovation_number if start_node_innovation_number is not None else None
         self.end_node_innovation_number = end_node_innovation_number if end_node_innovation_number is not None else None
         self.fitness = fitness if fitness is not None else 0.0
+        self.accuracy = 0.0
+        self.avg_tokens = 0.0
 
     def add_node(self, node: PromptNode):
         self.nodes[node.innovation_number] = node
@@ -121,9 +123,6 @@ class AgentGenome:
                     adjacency_list[conn.in_node].append((conn.out_node, edge_id))
                     in_degree[conn.out_node] += 1
                     edge_to_target[edge_id] = conn.out_node
-                else:
-                    # Ghost connection detected! We safely ignore it here. _prune_invalid_topology in the crosover class will permanently delete it in the next step.
-                    continue
         
         # Kahn's algorithm: Start with nodes that have in-degree 0
         queue = [node_id for node_id, degree in in_degree.items() if degree == 0]

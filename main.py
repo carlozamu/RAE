@@ -12,7 +12,7 @@ from Genome.agent_genome import AgentGenome
 from Phenotype.phenotype import Phenotype
 from Mutations.mutator import Mutator
 from Data.cluttr import CLUTTRManager
-from Utils.utilities import log_generation_to_markdown, log_and_print, clear_log_file, Plotter, force_cleanup
+from Utils.utilities import HistoryTracker, log_generation_to_markdown, log_and_print, clear_log_file, Plotter, force_cleanup
 from Utils.LLM import LLM
 from Utils.baseline_exportable import evaluate_baseline_batch
 from ERA.init_pop import initialize_population
@@ -27,7 +27,7 @@ MAX_GENERATIONS = 500
 MAX_TIME_SECONDS = 3600 * 10 # 10 Hours
 TARGET_FITNESS = 95.0        # Higher is better (Max is 100.0)
 STARTING_PROMPT = "Task: State only the one kinship word (from the posible answers) that describes the family relationship."
-NUM_INDIVIDUALS = 50  
+NUM_INDIVIDUALS = 50
 TARGET_SPECIES = 4
 DROPOFF_AGE = 14 # Generations a species can survive without improving max fitness  
 BATCH_SIZE = 50 # Number of problems each individual is evaluated on per generation
@@ -82,6 +82,7 @@ async def run_evolution():
     selector = RankBasedSelection(selection_pressure=SELECTION_PRESSURE)
     breeder = SpeciesBreeder(selector=selector, mutator=mutator, elitism_ratio=ELITISM_RATIO)
     plotter = Plotter()
+    history_manager = HistoryTracker()
     
     # Macro-Layer: Ecology, speciation, and resource allocation
     speciation_engine = SpeciationEngine(
@@ -162,7 +163,8 @@ async def run_evolution():
         log_and_print("-"*30)
 
         # F. Plot Generation for visual analysis
-        plot_path = plotter.plot_complexity_vs_fitness(speciation_engine.species_list, generation_idx) 
+        history_manager.record_generation(speciation_engine.species_list, zero_shot_stats, few_shots_stats)
+        plot_path = plotter.plot_complexity_vs_fitness(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
         subprocess.Popen(['xdg-open', plot_path])
 
         # G. Stop Criteria Checks

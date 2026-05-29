@@ -78,7 +78,10 @@ class Fitness:
         # Calculate final fitness
         avg_score = ((total_score) / (problems_evaluated))*100 if problems_evaluated > 0 else 0.0
         accuracy = ((accuracy) / (problems_evaluated))*100 if problems_evaluated > 0 else 0.0
+        avg_tokens = sum(token_usages)/len(token_usages) if token_usages else 0.0
         individual.genome.fitness = float(max(0.01, avg_score))
+        individual.genome.accuracy = accuracy
+        individual.genome.avg_tokens = avg_tokens
         
         # Return tokens so the parent gather() can collect them all
         return token_usages, accuracy

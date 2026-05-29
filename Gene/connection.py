@@ -16,18 +16,6 @@ class Connection:
         # Automatically generates the ID upon creation based on the provided nodes
         self.innovation_number: str = self.generate_connection_id(self.in_node, self.out_node)
             
-    def update_id(self, new_in_node: int = None, new_out_node: int = None):
-        """
-        Updates the connection ID. Can be called with new nodes to re-route the connection,
-        or called with no arguments to just refresh the ID based on current internal state.
-        """
-        if new_in_node is not None:
-            self.in_node = new_in_node
-        if new_out_node is not None:
-            self.out_node = new_out_node
-            
-        self.innovation_number = self.generate_connection_id(self.in_node, self.out_node)
-
     def copy(self):
         """
         Clone the connection gene. 

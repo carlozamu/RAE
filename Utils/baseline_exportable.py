@@ -55,7 +55,7 @@ async def _evaluate_single_baseline_problem(
             token_count=token_used
         )
         
-        return is_correct, score, answer_length, problem.get('metadata', {}).get('reasoning_length', 0)
+        return is_correct, score, answer_length, problem.get('metadata', {}).get('reasoning_length', 0), token_used
 
 async def evaluate_baseline_batch(
     baseline_name: str,
@@ -88,10 +88,12 @@ async def evaluate_baseline_batch(
     total_1_word = 0
     total_2_word = 0
     total_words_generated = 0
+    total_tokens_used = 0
 
-    for is_correct, score, answer_length, hop_length in results:
+    for is_correct, score, answer_length, hop_length, tokens_used in results:
         # Update Word Count Metrics
         total_words_generated += answer_length
+        total_tokens_used += tokens_used
         if answer_length == 1:
             total_1_word += 1
         elif answer_length == 2:
@@ -113,10 +115,12 @@ async def evaluate_baseline_batch(
     
     overall_accuracy = (total_correct / total_problems) * 100 if total_problems > 0 else 0
     overall_fitness = (total_score / total_problems) * 100 if total_problems > 0 else 0
+    avg_tokens = (total_tokens_used / total_problems) if total_problems > 0 else 0
 
     # Return stats for main.py to log/plot
     return {
         "accuracy": overall_accuracy,
         "fitness": overall_fitness,
-        "execution_time": execution_time
+        "execution_time": execution_time,
+        "avg_tokens": avg_tokens,
     }

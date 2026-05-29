@@ -8,8 +8,6 @@ from Utils.utilities import SemanticRegistry
 from Utils.LLM import LLM
 
 MUTATIONS_TEMPERATURE = 0.8
-MATURITY_THRESHOLD = 7
-
 
 class MutType:
     # Architectural (Global Topology)
@@ -81,14 +79,14 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         # --- 1. Global Rate Calculations --- (for a mature graph there is a 50% chance of not mutating at all)
         # Architectural Decay: Cools down global topology changes over generations
         if generation < 2:
-            p_arch = 0.00 # No architectural mutations in Gen 0 to allow initial population since no action can be taken
+            p_arch = 0.0 # No architectural mutations in Gen 0 to allow initial population since no action can be taken effectively
             p_gene = 0.8 # High gene mutation rate to encourage content diversity from the start
         else:
             p_arch = max(0.35, 0.75 ** (generation - 1))
             # Gene Mutation: Ensures roughly 1 mutation per child graph
             p_gene = max(0.25, 0.75 ** (generation - 1))
 
-        # --- 2. Architectural Probabilities (Thermostat to N=7) ---
+        # --- 2. Architectural Probabilities ---
         
         # A. Node Balance (Sum = 0.50)
         if node_count <= 7:
@@ -184,27 +182,24 @@ mutator = Mutator(breeder_llm, config=tuning_config)
                 return key
         return list(cdf.keys())[-1]
     
-    def _get_ancestors(self, genome: AgentGenome, target_node_id: str) -> set[str]:
+    def _get_ancestors(self, genome: AgentGenome, target_node_id: int) -> set[int]:
         """
         Returns a set of IDs of all nodes that can reach target_node_id.
-        Uses Reverse-BFS.
+        Uses Reverse-DFS.
         """
         # 1. Build Reverse Adjacency List (Map: Node -> Parents)
-        # Optimization: We build this only for the search. 
-        # In a larger system, you might cache this on the genome.
         parents_map = {nin: [] for nin in genome.nodes.keys()}
         for conn in genome.connections.values():
             if conn.enabled:
                 if conn.out_node in parents_map.keys():
                     parents_map[conn.out_node].append(conn.in_node)
         
-        # 2. Perform BFS backwards from target
+        # 2. Perform DFS backwards from target
         ancestors = set()
         stack = [target_node_id]
         
         while stack:
             current = stack.pop()
-            # If we haven't visited this node yet (it's a new ancestor)
             for parent_innovation_numbers in parents_map.get(current, []):
                 if parent_innovation_numbers not in ancestors:
                     ancestors.add(parent_innovation_numbers)

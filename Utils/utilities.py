@@ -1,10 +1,11 @@
 import gc
 import os
 import random
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import matplotlib.font_manager as fm
 
 from Species.species import Species
 
@@ -93,22 +94,25 @@ class SemanticRegistry:
         self.next_innovation_number += 1
         
         return new_id
+
 # --- 2. Plotting Utility ---
 class Plotter:
     """
     Encapsulates all plotting logic for the ERA framework.
-    Includes Complexity vs Fitness scatter plots with a custom equidistant scale.
+    Includes Accuracy vs Token Usage scatter plots for efficient LLM pipeline analysis.
     """
     def __init__(self):
-        # Maps species IDs to colors for consistent plotting across generations
         self.species_colors_registry = {}
         
-        # Pre-define a palette of highly distinct colors for the first few species
-        # This is much cleaner to read than purely random RGB values.
+        # Professional, colorblind-friendly distinct palette
         self.base_palette = [
             '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
             '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
         ]
+        
+        # High-contrast baseline colors
+        self.few_shot_baseline_color = "#AC9201"  # Vibrant Gold for Few-Shot
+        self.zero_shot_baseline_color = "#000000" # Pure Black for Zero-Shot
         self.palette_index = 0
 
     def _get_species_color(self, species_id: str) -> str:
@@ -118,97 +122,152 @@ class Plotter:
                 self.species_colors_registry[species_id] = self.base_palette[self.palette_index]
                 self.palette_index += 1
             else:
-                # Fallback to random distinct colors if we exceed the base palette
                 r, g, b = random.randint(30, 200), random.randint(30, 200), random.randint(30, 200)
                 self.species_colors_registry[species_id] = f'#{r:02x}{g:02x}{b:02x}'
         
         return self.species_colors_registry[species_id]
 
-    def plot_complexity_vs_fitness(self, generation_data: List[Species], generation_idx: int, output_dir="Utils/Logs/Plots") -> str:
+    def _parse_baseline(self, baseline_data: dict) -> Tuple[float, float]:
+        """Safely extracts (accuracy, avg_tokens) whether passed as a tuple or dict."""
+        return float(baseline_data.get("accuracy", 0.0)), float(baseline_data.get("avg_tokens", 0.0))
+
+    def plot_accuracy_vs_tokens(
+        self, 
+        generation_data: list, 
+        zero_shot_stats: dict, 
+        few_shots_stats: dict, 
+        generation_idx: int, 
+        output_dir="Utils/Logs/Plots"
+    ) -> str:
         """
-        Plots Complexity vs Fitness using a CUSTOM EQUIDISTANT SCALE.
-        Expects a list of Species objects directly from the Speciation Engine.
+        Plots Accuracy (Y-axis) vs Token Usage (X-axis).
+        Includes baseline comparisons plotted as prominent stars.
         """
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        # --- A. Define the Custom Grid (0-100 Fitness) ---
-        x_anchors = [0, 20, 40, 60, 80, 100]  
-        y_anchors = [1, 2, 5, 10, 20, 50, 100]
+        # 1. Parse Baselines
+        zs_acc, zs_tokens = self._parse_baseline(zero_shot_stats)
+        fs_acc, fs_tokens = self._parse_baseline(few_shots_stats)
 
-        x_positions = np.arange(len(x_anchors))
-        y_positions = np.arange(len(y_anchors))
+        xs, ys, colors, sizes = [], [], [], []
+        max_tokens_found = max(zs_tokens, fs_tokens)
 
-        mapped_xs = []
-        mapped_ys = []
-        colors = []
-        
-        # --- B. Process Data & Assign Colors ---
-        # generation_data is a List[Species]
+        # 2. Extract Data from Genomes
         for species in generation_data:
-            species_id_str = str(species.id)
-            species_color = self._get_species_color(species_id_str)
-            
-            # Iterate through the actual genomes inside the species
-            for member_genome in species.members:
-                real_fitness = member_genome.fitness
-                num_nodes = len(member_genome.nodes)
-                # Count only enabled connections to measure true active complexity
-                num_conns = len([c for c in member_genome.connections.values() if c.enabled])
-                real_complexity = max(1, num_nodes + num_conns)
+            species_color = self._get_species_color(str(species.id))
+            for member in species.members:
+                tokens = float(member.avg_tokens)
+                acc = float(member.accuracy)
                 
-                # Map real values to our equidistant grid coordinates
-                m_x = np.interp(real_fitness, x_anchors, x_positions)
-                m_y = np.interp(real_complexity, y_anchors, y_positions)
-                
-                mapped_xs.append(m_x)
-                mapped_ys.append(m_y)
+                xs.append(tokens)
+                ys.append(acc)
                 colors.append(species_color)
+                
+                # Dynamic sizing based on performance (better = slightly larger point)
+                sizes.append(60 + (acc * 0.8)) 
+                
+                if tokens > max_tokens_found:
+                    max_tokens_found = tokens
 
-        # --- C. Create Plot ---
-        plt.figure(figsize=(10, 7))
-        plt.scatter(mapped_xs, mapped_ys, c=colors, alpha=0.7, edgecolors='black', linewidth=0.5, s=60)
+        # 3. Setup Beautiful Plot Aesthetics
+        plt.figure(figsize=(11, 7), facecolor='#FAFAFA')
+        ax = plt.gca()
+        ax.set_facecolor('#FAFAFA')
         
-        # Fake the Axis Labels to show real bounds while maintaining equidistant layout
-        plt.xticks(x_positions, [str(x) for x in x_anchors])
-        plt.yticks(y_positions, [str(y) for y in y_anchors])
+        # Subdued grid lines
+        ax.grid(True, linestyle='--', color='#E0E0E0', alpha=0.8, zorder=0)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#333333')
+        ax.spines['bottom'].set_color('#333333')
+
+        # 4. Plot Population Scatter
+        if xs:
+            plt.scatter(
+                xs, ys, c=colors, s=sizes, alpha=0.75, 
+                edgecolors='white', linewidth=1.0, zorder=3
+            )
+
+        # 5. Plot Baselines (Giant Stars so they cannot be missed)
+        plt.scatter(
+            [zs_tokens], [zs_acc], 
+            color=self.zero_shot_baseline_color, marker='*', s=450, 
+            edgecolors='white', linewidth=1.5, zorder=5
+        )
+        plt.scatter(
+            [fs_tokens], [fs_acc], 
+            color=self.few_shot_baseline_color, marker='*', s=450, 
+            edgecolors='black', linewidth=1.0, zorder=5 
+        )
+
+        # 6. Formatting & Labels
+        plt.title(f"Generation {generation_idx} Ecology: Accuracy vs. Efficiency", 
+                  fontsize=16, fontweight='bold', color='#1A1A1A', pad=20)
         
-        plt.xlim(-0.5, len(x_anchors) - 0.5)
-        plt.ylim(-0.5, len(y_anchors) - 0.5)
+        plt.xlabel("Average Token Usage (Lower is Better)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
+        plt.ylabel("Accuracy Score (0 - 100)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
 
-        plt.title(f"Generation {generation_idx}: Complexity vs. Fitness")
-        plt.xlabel("Fitness -> Higher is Better")
-        plt.ylabel("Complexity (Nodes + Enabled Edges)")
-        plt.grid(True, linestyle='--', alpha=0.5)
+        # Define axis limits
+        plt.ylim(-5, 105)
+        # Pad the X-axis by 10% to give the right-most point breathing room
+        padding_x = max_tokens_found * 0.1 if max_tokens_found > 0 else 100
+        plt.xlim(0, max_tokens_found + padding_x)
 
-        # --- D. Legend Logic ---
+        # 7. Professional Legend Construction
         legend_handles = []
-        # Extract active species IDs and sort them for a clean legend
-        active_species_ids = sorted([str(s.id) for s in generation_data])
         
+        # Add Baselines to legend first
+        legend_handles.append(plt.Line2D([0], [0], marker='*', color='w', label="Zero-Shot Baseline", 
+                                       markerfacecolor=self.zero_shot_baseline_color, markersize=16, 
+                                       markeredgecolor='white'))
+        legend_handles.append(plt.Line2D([0], [0], marker='*', color='w', label="Few-Shot Baseline", 
+                                       markerfacecolor=self.few_shot_baseline_color, markersize=16, 
+                                       markeredgecolor='black'))
+
+        # Add Active Species
+        active_species_ids = sorted([str(s.id) for s in generation_data])
         for s_key in active_species_ids:
-            color = self.species_colors_registry[s_key]
-            
-            # Safely format the display label. Truncate if it's a long UUID, leave alone if it's a short Int
-            display_label = f"Species {s_key[:8]}" if len(s_key) > 8 else f"Species {s_key}"
-            
+            display_label = f"Species {s_key[:6]}" if len(s_key) > 6 else f"Species {s_key}"
             patch = plt.Line2D([0], [0], marker='o', color='w', label=display_label, 
-                               markerfacecolor=color, markersize=10)
+                               markerfacecolor=self.species_colors_registry[s_key], markersize=10, 
+                               markeredgecolor='white', alpha=0.8)
             legend_handles.append(patch)
         
-        # Render legend outside the main plot area so it doesn't cover data points
+        # Render Legend cleanly outside the main canvas
         if legend_handles:
-            plt.legend(handles=legend_handles, title="Active Species", bbox_to_anchor=(1.05, 1), loc='upper left')
+            legend = plt.legend(
+                handles=legend_handles, title="Ecology Types", 
+                bbox_to_anchor=(1.02, 1), loc='upper left', frameon=True, 
+                edgecolor='#E0E0E0', facecolor='white', fancybox=True
+            )
+            legend.get_title().set_fontweight('bold')
         
         plt.tight_layout()
 
-        filename = f"{output_dir}/gen_{generation_idx}_scatter.png"
-        plt.savefig(filename)
+        # 8. Save Crisp High-Res Output
+        filename = f"{output_dir}/gen_{generation_idx}_accuracy_vs_tokens.png"
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
         plt.close()
         
         return filename
-    
-# --- 3. Logging Utility ---
+     
+# --- 3. History Utility ---
+class HistoryTracker:
+    """
+    Maintains a structured history of all individuals.
+    This is crucial for debugging, telemetry, and understanding the evolutionary trajectory.
+    """
+    def __init__(self):
+        self.history: list[tuple[list[Species], dict[str, tuple[float, float]]]] = [] # List of (Species List, Baseline Stats) per generation
+
+    def record_generation(self, species_list: List[Species], zero_shot_stats: Tuple[float, float], few_shots_stats: Tuple[float, float]):
+        self.history.append((species_list, {
+            "zero_shot": zero_shot_stats,
+            "few_shot": few_shots_stats
+        }))
+
+# --- 4. Logging Utility ---
 def log_and_print(message: str, log_file: str = "Utils/Logs/generation_logger.md"):
     print(message)
     
