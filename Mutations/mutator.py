@@ -72,51 +72,56 @@ mutator = Mutator(breeder_llm, config=tuning_config)
     def get_dynamic_config(generation: int, node_count: int, connections_count: int) -> dict:
         """
         Calculates mutation probabilities using a strict mathematical 'Phase Shift' strategy.
-        Architectural mutations act as a self-correcting thermostat centered at N=7 nodes.
+        Architectural mutations act as a self-correcting thermostat centered at N=4 nodes,
+        with a hard cap at N=6.
         Gene mutations shift from early Cognitive Structuring to late Linguistic Compression.
         """
         
-        # --- 1. Global Rate Calculations --- (for a mature graph there is a 50% chance of not mutating at all)
+        # --- 1. Global Rate Calculations ---
         # Architectural Decay: Cools down global topology changes over generations
+        # Architectural Decay: Cools down global topology changes smoothly
         if generation < 2:
-            p_arch = 0.0 # No architectural mutations in Gen 0 to allow initial population since no action can be taken effectively
-            p_gene = 0.8 # High gene mutation rate to encourage content diversity from the start
+            p_arch = 0.0 
+            p_gene = 0.8 
         else:
-            p_arch = max(0.35, 0.75 ** (generation - 1))
-            # Gene Mutation: Ensures roughly 1 mutation per child graph
-            p_gene = max(0.25, 0.75 ** (generation - 1))
+            # Shift the exponent so Gen 2 = 0
+            decay_steps = generation - 2 
+            
+            # Starts at and decays by 15% per generation
+            p_arch = max(0.25, 0.50 * (0.85 ** decay_steps))
+            
+            # Starts at 0.60 and decays by 15% per generation
+            p_gene = max(0.25, 0.60 * (0.85 ** decay_steps))
 
         # --- 2. Architectural Probabilities ---
-        
-        # A. Node Balance (Sum = 0.50)
-        if node_count <= 7:
-            # Scales from 0.0 at N=1 to 0.25 at N=7
-            t_node = (node_count - 1) / 6.0 if node_count > 1 else 0.0
-            p_remove_node = 0.25 * t_node
-        else:
-            # Scales from 0.25 at N=7 to 0.50 at N=14 (capped at 14)
-            t_node = min(1.0, (node_count - 7) / 7.0)
-            p_remove_node = 0.25 + (0.25 * t_node)
-            
-        p_add_node = 0.50 - p_remove_node
+        remove_conn = min(((connections_count + 1 - node_count) / (node_count - 1)), 1.0) if node_count > 1 else 0.0 # 0 when there are only essential connections, 1 when there are double the necessary connections
+        add_conn = 1.0 - remove_conn
 
-        # B. Connection Balance (Sum = 0.50) based on DAG Density
+        add_node = 0.0
+        if node_count == 2:
+            add_node = 0.7
+        elif node_count == 3:
+            add_node = 0.6
+        elif node_count == 4:
+            add_node = 0.5
+        elif node_count >= 5:
+            add_node = 0.0
+        remove_node = 1.0 - add_node
+
         if node_count <= 1:
-            density = 1.0 # Cannot add connections if only 1 node exists
+            p_add_node = 0.0
+            p_remove_node = 0.0
+            p_add_conn = add_conn
+            p_remove_conn = remove_conn 
         else:
-            max_possible_connections = (node_count * (node_count - 1)) / 2.0
-            density = min(1.0, connections_count / max_possible_connections)
-            
-        p_remove_conn = 0.50 * density
-        p_add_conn = 0.50 - p_remove_conn
-
-        # --- 3. Gene Probabilities (Structuring -> Compression) ---
+            p_add_node = add_node * 0.65
+            p_remove_node = remove_node * 0.65
+            p_add_conn = add_conn * 0.35
+            p_remove_conn = remove_conn * 0.35
         
-        # Alpha scalar: 0.0 when N=1, 1.0 when N>=7
-        alpha = min(1.0, (node_count - 1) / 6.0) if node_count > 1 else 0.0
-
-        def lerp(start: float, end: float, t: float) -> float:
-            return start + (end - start) * t
+        # --- 3. Gene Probabilities (Structuring -> Compression) ---
+        split = max(0.0, 0.5 - node_count * 0.1)
+        others = (1.0 - split) / 5 
 
         return {
             "p_architectural_event": p_arch,
@@ -130,12 +135,12 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             },
             
             "gene_probs": {
-                MutType.GENE_SPLIT:            lerp(0.50, 0.10, alpha),
-                MutType.GENE_INJECT_REASONING: lerp(0.15, 0.15, alpha),
-                MutType.GENE_EXPAND:           lerp(0.15, 0.20, alpha),
-                MutType.GENE_ADD_PERSONA:      lerp(0.15, 0.05, alpha),
-                MutType.GENE_REFORMULATE:      lerp(0.05, 0.30, alpha),
-                MutType.GENE_SIMPLIFY:         lerp(0.00, 0.20, alpha)
+                MutType.GENE_SPLIT:            split,
+                MutType.GENE_INJECT_REASONING: others,
+                MutType.GENE_EXPAND:           others,
+                MutType.GENE_ADD_PERSONA:      others,
+                MutType.GENE_REFORMULATE:      others,
+                MutType.GENE_SIMPLIFY:         others
             }
         }
     def __init__(self, breeder_llm_client: LLM, default_config=None):
@@ -511,30 +516,38 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         #print(f"Applying {style} mutation to node: {node.name}\nOriginal: {node.instruction}")
 
         expand_prompt = f"""<start_of_turn>system
-Task: Expansion.
-Rewrite the instruction to be more detailed by breaking it down into specific, actionable logical steps. 
-Constraint: You must preserve only the exact original objective. Do not add new goals.<end_of_turn>
+You are an expert prompt engineer. Your goal is to transform concise instructions into highly detailed, actionable, and logical procedures.
+
+For every input:
+1. Deconstruct the objective into a sequential, step-by-step process.
+2. Ensure each step is a concrete action.
+3. Strictly maintain the original goal without introducing extraneous tasks.
+4. Output only the "Detailed Version" of the instruction.<end_of_turn>
 <start_of_turn>user
 Original: Identify the connection between the two subjects.<end_of_turn>
 <start_of_turn>model
-Detailed Version: First, locate the two target subjects in the provided text. Second, trace any intermediary links or shared attributes between them. Finally, synthesize these links to deduce their exact connection.<end_of_turn>
+Detailed Version: First, identify the two target subjects. Second, analyze their shared attributes or causal links. Third, synthesize these observations to explicitly define the nature of their connection.<end_of_turn>
 <start_of_turn>user
 Original: Think step-by-step to find the answer.<end_of_turn>
 <start_of_turn>model
-Detailed Version: Break down the problem into individual logical components. Analyze each component sequentially, ensuring each deduction is strictly grounded in the provided facts before reaching the final conclusion.<end_of_turn>
+Detailed Version: First, decompose the problem into its fundamental logical components. Second, evaluate each component sequentially, ensuring every deduction is supported by the provided data. Finally, aggregate these evaluations to form the definitive answer.<end_of_turn>
 <start_of_turn>user
 Original: Filter the relevant information.<end_of_turn>
 <start_of_turn>model
-Detailed Version: Review the provided context and actively discard any extraneous details. Isolate only the specific facts that directly contribute to solving the core objective.<end_of_turn>
+Detailed Version: First, scan the context to categorize data points based on their utility. Second, identify and discard all extraneous information that does not serve the core objective. Finally, extract and list only the essential facts required for the task.<end_of_turn>
 <start_of_turn>user
 Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
-Detailed Version: """
+Detailed Version:"""
 
         simplify_prompt = f"""<start_of_turn>system
-Task: Simplification.
-Compress the instruction into a single, concise high-level cognitive goal. Remove verbose step-by-step details.
-Constraint: You must preserve the exact underlying goal and any strict output formats. Do not change *what* needs to be done, only simplify the description of *how* to do it.<end_of_turn>
+You are a concise instruction editor. Your goal is to condense verbose instructions into clear, high-level commands.
+
+Follow these rules:
+1. Retain the core objective and all strict output format constraints.
+2. Remove procedural "how-to" descriptions (e.g., "First, do X, then do Y").
+3. Use a single, direct, imperative sentence.
+4. Output only the "Simplified Version".<end_of_turn>
 <start_of_turn>user
 Original: First, locate the two target subjects in the provided text. Second, trace any intermediary links or shared attributes between them. Finally, synthesize these links to deduce their exact connection.<end_of_turn>
 <start_of_turn>model
@@ -546,7 +559,7 @@ Simplified Version: Think step-by-step to reach a logical conclusion.<end_of_tur
 <start_of_turn>user
 Original: Review the provided context and actively discard any extraneous details. Isolate only the specific facts that directly contribute to solving the core objective.<end_of_turn>
 <start_of_turn>model
-Simplified Version: Extract only the relevant facts.<end_of_turn>
+Simplified Version: Filter the text for only the relevant information.<end_of_turn>
 <start_of_turn>user
 Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
@@ -554,72 +567,51 @@ Simplified Version: """
 
         reformulate_prompt = f"""<start_of_turn>system
 Task: Stylistic Paraphrasing.
-Rewrite the instruction using different vocabulary and sentence structure while preserving the exact original cognitive goal. Do not add or remove logical steps.
+Rewrite the instruction using completely different vocabulary and sentence structure while preserving the exact original cognitive goal. Do not add or remove logical steps.
 
-Constraint: You must strictly preserve any specific output formatting rules (e.g., "State only the one word"). Change the phrasing of the thought process, but NEVER change the final output requirement.
-
-Style Directive: Before writing, internally select and apply one of the following distinct cognitive styles:
-1. Inquisitive (Framing the task as a direct question to the AI)
-2. Concise & Direct (Minimalist, stripped of all filler words)
-3. Academic & Formal (Highly precise, analytical language)
-4. Imperative (Strong, commanding action verbs)<end_of_turn>
+Constraint: You must strictly preserve any specific output formatting rules (e.g., "State only the one word"). Change the phrasing of the thought process, but NEVER change the final output requirement.<end_of_turn>
 <start_of_turn>user
-Style: Inquisitive
 Original: State only the single kinship word that describes the relationship.<end_of_turn>
 <start_of_turn>model
 Reformulated Version: What specific kinship term defines their connection? Output only that single word.<end_of_turn>
 <start_of_turn>user
-Style: Concise & Direct
 Original: Think step-by-step to reach a logical conclusion.<end_of_turn>
 <start_of_turn>model
-Reformulated Version: Systematically derive the logical conclusion.<end_of_turn>
+Reformulated Version: Systematically evaluate the information to derive a sound conclusion.<end_of_turn>
 <start_of_turn>user
-Style: Academic & Formal
 Original: Identify the connection between the subjects.<end_of_turn>
 <start_of_turn>model
 Reformulated Version: Deduce the exact relational link connecting the specified entities.<end_of_turn>
 <start_of_turn>user
-Style: Imperative
 Original: Read the context carefully and extract the right answer.<end_of_turn>
 <start_of_turn>model
-Reformulated Version: Isolate the correct answer directly from the provided context.<end_of_turn>
+Reformulated Version: Isolate the correct answer directly from the provided text.<end_of_turn>
 <start_of_turn>user
-Style: This time you choose the style.
 Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
 Reformulated Version: """
 
         persona_prompt = f"""<start_of_turn>system
 Task: Persona Injection.
-Rewrite the instruction by commanding the AI to adopt a highly specific, expert cognitive persona. If a persona is already implied, change it to a different one.
+Rewrite the instruction by commanding the AI to adopt a highly specific, imaginative expert persona (e.g., a master chef, a quantum physicist, an ancient historian). 
 
-Constraint: You must preserve the exact underlying goal and any strict output formatting rules. Wrap the original logic in the persona's perspective, but NEVER change the required format of the final answer.
-
-Persona Directive: Before writing, internally select and apply one of the following distinct expert archetypes:
-1. The Master Detective (Focuses on clues, evidence tracing, and hidden links)
-2. The Rigorous Mathematician (Focuses on axioms, variables, and absolute proof)
-3. The Skeptical Auditor (Focuses on verifying facts and actively discarding assumptions)
-4. The Systems Engineer (Focuses on structural relationships and node mappings)<end_of_turn>
+Constraint: You must preserve the exact underlying goal and any strict output formatting rules. Wrap the original logic in the persona's unique vocabulary and perspective, but NEVER change the required format of the final answer.<end_of_turn>
 <start_of_turn>user
-Archetype: The Master Detective
 Original: Identify the connection between the subjects.<end_of_turn>
 <start_of_turn>model
-Mutated Version: Act as a world-class detective. Scour the provided text for clues and trace the evidence to deduce the exact connection between the subjects.<end_of_turn>
+Mutated Version: Act as a seasoned forensic profiler. Examine the behavioral artifacts and trace the psychological threads to deduce the precise link connecting the subjects.<end_of_turn>
 <start_of_turn>user
-Archetype: The Rigorous Mathematician
 Original: Think step-by-step to reach a logical conclusion.<end_of_turn>
 <start_of_turn>model
-Mutated Version: You are a brilliant mathematician. Construct a rigorous, step-by-step proof derived solely from the provided axioms to reach an undeniable logical conclusion.<end_of_turn>
+Mutated Version: You are a chess grandmaster. Evaluate the board position and calculate each subsequent move sequentially to arrive at an undeniable checkmate conclusion.<end_of_turn>
 <start_of_turn>user
-Archetype: The Skeptical Auditor
 Original: Extract only the relevant facts.<end_of_turn>
 <start_of_turn>model
-Mutated Version: As a strict auditor, review the context with intense skepticism. Discard all extraneous noise and isolate only the verified facts required for the objective.<end_of_turn>
+Mutated Version: Adopt the mindset of a master sculptor. Chisel away all extraneous material from the provided context and isolate only the pure, essential facts required for the objective.<end_of_turn>
 <start_of_turn>user
-Archetype: The Systems Engineer
 Original: State only the single kinship word that describes the relationship.<end_of_turn>
 <start_of_turn>model
-Mutated Version: You are an expert systems engineer mapping a relational graph. What specific terminal node (kinship term) defines their connection? Output only that single word.<end_of_turn>
+Mutated Version: As an expert genetic genealogist, sequence the ancestral data to identify the specific relational marker. State only the single kinship word.<end_of_turn>
 <start_of_turn>user
 Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
@@ -627,35 +619,25 @@ Mutated Version: """
 
         reasoning_prompt = f"""<start_of_turn>system
 Task: Reasoning Injection.
-Enhance the instruction by explicitly commanding the AI to apply a specific cognitive reasoning framework before generating its final answer. If a reasoning style is already implied, add a new one to further deepen the thought process.
+Enhance the instruction by explicitly commanding the AI to apply a distinct cognitive reasoning framework (e.g., step-by-step deduction, working backwards, falsification, or sub-problem decomposition) before generating its final answer. 
 
-Constraint: You must preserve the exact underlying goal and any strict output formatting rules. You may add instructions on *how* to think before answering, but NEVER change the required format of the final answer.
-
-Reasoning Directive: Before writing, internally select and apply one of the following distinct reasoning frameworks:
-1. Chain of Thought (Force a sequential, step-by-step logical progression)
-2. Working Backwards (Start from the target objective and trace dependencies backward)
-3. Falsification (Explicitly rule out incorrect options before settling on the true answer)
-4. Sub-goal Decomposition (Break the main problem into smaller, independent questions to answer sequentially)<end_of_turn>
+Constraint: You must preserve the exact underlying goal and any strict output formatting rules. You may add instructions on *how* to think before answering, but NEVER change the required format of the final answer.<end_of_turn>
 <start_of_turn>user
-Framework: Chain of Thought
 Original: Deduce the exact relational link connecting the specified entities.<end_of_turn>
 <start_of_turn>model
-Mutated Version: Deduce the exact relational link connecting the specified entities. Before answering, carefully map out the logical progression step-by-step to ensure absolute accuracy.<end_of_turn>
+Mutated Version: Deduce the exact relational link connecting the specified entities. Before providing your conclusion, map out your logical progression step-by-step to ensure absolute accuracy.<end_of_turn>
 <start_of_turn>user
-Framework: Working Backwards
 Original: Identify the connection between the subjects.<end_of_turn>
 <start_of_turn>model
-Mutated Version: Identify the connection between the subjects. Begin by looking at the final subject and logically work backward through their direct dependencies until you reach the starting subject.<end_of_turn>
+Mutated Version: Identify the connection between the subjects by starting at the final target and tracing the logical dependencies backward until you reach the origin point.<end_of_turn>
 <start_of_turn>user
-Framework: Falsification
 Original: State only the single kinship word that describes the relationship.<end_of_turn>
 <start_of_turn>model
-Mutated Version: First, internally review all possible relationships and explicitly rule out the logically impossible ones. Then, state only the single kinship word that describes the true relationship.<end_of_turn>
+Mutated Version: Before answering, internally review all possible relationships and explicitly rule out the logically impossible ones through falsification. Then, state only the single kinship word that describes the true relationship.<end_of_turn>
 <start_of_turn>user
-Framework: Sub-goal Decomposition
 Original: Extract only the relevant facts.<end_of_turn>
 <start_of_turn>model
-Mutated Version: First, divide the text into independent informational chunks. Evaluate the relevance of each chunk individually. Finally, extract only the relevant facts required for the objective.<end_of_turn>
+Mutated Version: First, divide the context into independent informational chunks. Evaluate the relevance of each chunk individually, and finally, extract only the specific facts required for the objective.<end_of_turn>
 <start_of_turn>user
 Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
@@ -676,7 +658,7 @@ Mutated Version: """
         # CRITICAL FIX: Temperature set to 0.8 to force genetic diversity
         response: str = await self.llm.generate_text(prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
         
-        if response and len(response.strip()) > 5:
+        if response and len(response.strip()) > 3:
             node.instruction = response.strip()
             node.embedding = self.llm.get_embedding(response)
             innovation_number =self.semantic_registry.get_or_create_innovation_number(node.embedding, set(genome.nodes.keys()), node.instruction, node_id)
@@ -704,20 +686,16 @@ Mutated Version: """
                 node = genome.nodes.pop(node_id)
                 genome.add_node(node) # Update the node in the genome list
         else:
-            print(f"Failed to generate new instruction for {node.name}. Retaining original.")
-            
+            print(f"Failed to generate new instruction for {node.name} with style {style}. Faulty response: {response}\n")
     async def _generate_new_node(self, name1: str, inst1: str, name2: str, inst2: str) -> PromptNode:
         """
         Asks for a bridging cognitive step.
         Returns: A new PromptNode object connecting Step A and Step C.
         """
         bridge_prompt = f"""<start_of_turn>system
-System Directive: You are an abstract cognitive routing engine. Your goal is to construct generalized reasoning pathways.
+You are an expert cognitive architect designing reasoning pathways. Your task is to invent a logical intermediate step (Step B) that perfectly bridges the cognitive gap between Step A and Step C.
 
-Task: Logical Bridge Insertion.
-Create a missing intermediate cognitive step that logically bridges the gap between Step A and Step C. 
-
-Constraint: You must output exactly ONE intermediate step using the strict format `Name: <name> | Instr: <instruction>`. Do not add any conversational filler, and do not create more than one step.<end_of_turn>
+Constraint: You must output exactly ONE intermediate step using the strict format `[Step B] Name: <name> | Instr: <instruction>`. The instruction must clearly transform the outcome of Step A into the prerequisite needed for Step C. Do not include conversational filler.<end_of_turn>
 <start_of_turn>user
 [Step A] Name: Extract Variables | Instr: Identify the core subjects and conditions stated in the premise.
 [Step C] Name: Final Deduction | Instr: Synthesize the findings into a single verifiable conclusion.<end_of_turn>
@@ -727,17 +705,17 @@ Constraint: You must output exactly ONE intermediate step using the strict forma
 [Step A] Name: Define Objective | Instr: Clarify the exact question that needs to be answered.
 [Step C] Name: Execute Solution | Instr: Calculate or derive the final answer based on the established framework.<end_of_turn>
 <start_of_turn>model
-[Step B] Name: Devise Strategy | Instr: Formulate a step-by-step logical plan to move from the initial objective to the final solution.<end_of_turn>
+[Step B] Name: Devise Strategy | Instr: Formulate a step-by-step logical plan connecting the initial objective to the required solution.<end_of_turn>
 <start_of_turn>user
 [Step A] Name: Read Context | Instr: Review the provided text carefully.
 [Step C] Name: Filter Noise | Instr: Discard all statements that do not directly contribute to the target question.<end_of_turn>
 <start_of_turn>model
-[Step B] Name: Isolate Facts | Instr: Extract the specific factual claims from the context so they can be evaluated.<end_of_turn>
+[Step B] Name: Isolate Claims | Instr: Extract the specific factual claims from the text to prepare them for evaluation.<end_of_turn>
 <start_of_turn>user
 [Step A] Name: {name1} | Instr: {inst1}
 [Step C] Name: {name2} | Instr: {inst2}<end_of_turn>
 <start_of_turn>model
-[Step B] Name: """
+[Step B] Name:"""
         
         response: str = await self.llm.generate_text(bridge_prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
         
@@ -751,7 +729,7 @@ Constraint: You must output exactly ONE intermediate step using the strict forma
             return PromptNode(name, instruction, embedding=embedding, innovation_number=-1)
             
         except Exception as e:
-            # print(f"Bridge Parsing Failed: {e}. Using cognitive fallback.")
+            print(f"Bridge Parsing Failed: {e} with response: {response}\n")
             
             # Use a domain-agnostic cognitive instruction for the fallback to maintain fitness
             fallback_instruction = "Review the deductions made so far and explicitly map out the logical dependencies required for the next step."
@@ -765,34 +743,29 @@ Constraint: You must output exactly ONE intermediate step using the strict forma
         Returns: (name1, prompt1, name2, prompt2)
         """
         split_prompt = f"""<start_of_turn>system
-System Directive: You are an abstract cognitive routing engine. Your goal is to construct generalized reasoning pathways.
+You are an expert cognitive architect designing reasoning pathways. Your task is to split a complex instruction into two sequential, atomic sub-steps (Part 1: Preparation/Analysis, Part 2: Execution/Formatting).
 
-Task: Sequential Logic Split.
-Split the Original Instruction into two sequential, atomic cognitive steps (Part 1 then Part 2) that together achieve the exact same goal.
-
-Constraint 1: You must output exactly TWO steps using the strict format `1. Name: <name> | Instr: <instruction>`. 
-Constraint 2: CRITICAL TERMINAL RULE. If the Original Instruction contains a strict output format constraint, grammatical trap, or length restriction (e.g., "State only the one kinship word", "output exactly one word", "do not write a full sentence"), you MUST explicitly pass that exact formatting constraint into the instruction for Step 2.
-You can introduce output formatting constraints also for Step 1 if useful.<end_of_turn>
+Follow these rules:
+1. Output exactly TWO steps using this strict format: `[Step Number]. Name: <name> | Instr: <instruction>`.
+2. Each step must be a single line.
+3. CRITICAL TERMINAL RULE: If the Original Instr contains a strict output format or length constraint (e.g., "CONSTRAINT: output exactly one word"), you MUST append that exact constraint verbatim to the end of the Step 2 instruction. You may also add intermediate formatting constraints to Step 1 if it helps the data flow.<end_of_turn>
 <start_of_turn>user
 Original Name: Isolate and Deduce
-Original Instr: Discard irrelevant facts and logically deduce the hidden connection. 
-CONSTRAINT: You must reply with exactly one sentence that exlains the hidden connection.<end_of_turn>
+Original Instr: Discard irrelevant facts and logically deduce the hidden connection. CONSTRAINT: You must reply with exactly one sentence that explains the hidden connection.<end_of_turn>
 <start_of_turn>model
-1. Name: Isolate Facts | Instr: Review the text and explicitly discard all irrelevant statements, keeping only the core facts. CONSTRAINT: You must reply with a list of the filtered remaing relevant facts.
-2. Name: Deduce Connection | Instr: Use the isolated facts to logically deduce the final hidden connection between the subjects. CONSTRAINT: You must reply with exactly one sentence that exlains the hidden connection.<end_of_turn>
+1. Name: Isolate Facts | Instr: Review the text and explicitly discard all irrelevant statements to generate a filtered list of core facts.
+2. Name: Deduce Connection | Instr: Use the isolated facts to logically deduce the final hidden connection between the subjects. CONSTRAINT: You must reply with exactly one sentence that explains the hidden connection.<end_of_turn>
 <start_of_turn>user
 Original Name: Baseline Kinship Evaluation
-Original Instr: Task: State only the one kinship word (from the posible answers) that describes the family relationship between the two target individuals.
-CONSTRAINT: You must output only one word that is a valid kinship term describing the relationship. Do not write a full sentence, and do not provide conversational filler or explanations.<end_of_turn>
+Original Instr: Task: State only the one kinship word (from the possible answers) that describes the family relationship between the two target individuals. CONSTRAINT: You must output only one word that is a valid kinship term describing the relationship. Do not write a full sentence, and do not provide conversational filler.<end_of_turn>
 <start_of_turn>model
-1. Name: Trace Kinship Tree | Instr: Read the provided story carefully and systematically map the relational lineage from the first target individual to the second.
-2. Name: Format Kinship Term | Instr: Based on the mapped lineage, state only the one kinship word from the allowed options that describes the relationship. Do not write a full sentence, and do not provide conversational filler or explanations.
-CONSTRAINT: You must output only one word that is a valid kinship term describing the relationship. Do not write a full sentence, and do not provide conversational filler or explanations.<end_of_turn>
+1. Name: Trace Kinship Tree | Instr: Read the provided text carefully and systematically map the relational lineage from the first target individual to the second.
+2. Name: Format Kinship Term | Instr: Based on the mapped lineage, select the correct term from the allowed options. CONSTRAINT: You must output only one word that is a valid kinship term describing the relationship. Do not write a full sentence, and do not provide conversational filler.<end_of_turn>
 <start_of_turn>user
 Original Name: {original_name}
 Original Instr: {original_instruction}<end_of_turn>
 <start_of_turn>model
-1. Name: """
+1. Name:"""
         
         response: str = await self.llm.generate_text(split_prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
         
@@ -822,6 +795,6 @@ Original Instr: {original_instruction}<end_of_turn>
             # Node 1 becomes a silent preparation step.
             # Node 2 retains the original instruction to preserve the terminal trap.
             prep_name = f"Prepare_{original_name.replace(' ', '_')}"
-            prep_instruction = "Analyze the provided context and mentally map out the entities involved before proceeding to the final task."
+            prep_instruction = "Analyze the provided context and explicitly map out the entities involved before proceeding with the other task."
             
             return prep_name, prep_instruction, original_name, original_instruction

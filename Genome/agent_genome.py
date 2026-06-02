@@ -1,5 +1,5 @@
+from collections import deque
 import uuid
-
 import math
 from Gene.gene import PromptNode
 from Gene.connection import Connection
@@ -58,8 +58,17 @@ class AgentGenome:
                     in_degree[v] += 1
                     parent_map[v].append(u)
 
-        # 2. Initialize Queue
-        queue = [self.start_node_innovation_number]
+        # 2. Initialize Queue (The Fix)
+        # Kahn's algorithm MUST start with ALL nodes that have zero incoming dependencies,
+        # otherwise deadlocks occur when orphan nodes exist.
+        queue = [node_inn for node_inn, degree in in_degree.items() if degree == 0]
+        
+        # Optional but recommended: Force the designated Start Node to the front of the queue 
+        # so it processes first.
+        if self.start_node_innovation_number in queue:
+            queue.remove(self.start_node_innovation_number)
+            queue.insert(0, self.start_node_innovation_number)
+            
         execution_plan: list[tuple[PromptNode, list[int]]] = []
         
         # 3. Kahn's Algorithm Loop
@@ -82,6 +91,7 @@ class AgentGenome:
         
         if not has_end and self.end_node_innovation_number in self.nodes:
              print(f"Warning: End node {self.end_node_innovation_number} is unreachable from Start.")
+             print("")
         
         return execution_plan
 
@@ -92,6 +102,8 @@ class AgentGenome:
         """
         new_genome = AgentGenome()
         new_genome.fitness = self.fitness
+        new_genome.accuracy = self.accuracy
+        new_genome.avg_tokens = self.avg_tokens
         new_genome.start_node_innovation_number = self.start_node_innovation_number
         new_genome.end_node_innovation_number = self.end_node_innovation_number
         
@@ -196,10 +208,13 @@ class AgentGenome:
         
         return score
     
+    from collections import deque
+
     def verify_all_paths_lead_to_end(self) -> bool:
         """
-        Global graph integrity check. 
-        Returns True if the Start node can successfully reach the End node.
+        Strict structural integrity check: O(V + E) Time, O(V) Space.
+        Ensures 100% of nodes are reachable from Start (No Orphans) 
+        AND 100% of nodes can reach End (No Dead Ends).
         """
         if self.start_node_innovation_number is None or self.end_node_innovation_number is None:
             return False
@@ -207,31 +222,49 @@ class AgentGenome:
         start_id = self.start_node_innovation_number
         end_id = self.end_node_innovation_number
         
-        # 1. Build Adjacency List (Only for enabled connections)
-        adj = {node_id: [] for node_id in self.nodes.keys()}
+        all_node_ids = set(self.nodes.keys())
+        expected_count = len(all_node_ids)
+        
+        # 1. Single-Pass Adjacency Building
+        # We pre-allocate arrays to avoid dictionary key lookups during the BFS
+        forward_adj = {node_id: [] for node_id in all_node_ids}
+        backward_adj = {node_id: [] for node_id in all_node_ids}
+        
         for conn in self.connections.values():
-            if conn.enabled:
-                if conn.in_node in adj:
-                    adj[conn.in_node].append(conn.out_node)
+            if conn.enabled and conn.in_node in all_node_ids and conn.out_node in all_node_ids:
+                forward_adj[conn.in_node].append(conn.out_node)
+                backward_adj[conn.out_node].append(conn.in_node)
                 
-        # 2. Standard Forward BFS
-        visited = set([start_id])
-        queue = [start_id]
+        # 2. Forward BFS (Detects Orphans)
+        forward_visited = {start_id}
+        queue = deque([start_id]) # deque guarantees O(1) popleft
         
         while queue:
-            curr = queue.pop(0)
-            
-            # The millisecond we find the End node, the graph is structurally valid.
-            if curr == end_id:
-                return True
-                
-            for neighbor in adj.get(curr, []):
-                if neighbor not in visited:
-                    visited.add(neighbor)
+            curr = queue.popleft()
+            for neighbor in forward_adj[curr]:
+                if neighbor not in forward_visited:
+                    forward_visited.add(neighbor)
                     queue.append(neighbor)
                     
-        # If the queue empties and we never saw the End node, the graph is severed.
-        return False
+        # EARLY EXIT: If Start cannot reach every node, the graph is already invalid.
+        # We skip the second search entirely, saving 50% of the compute time.
+        if len(forward_visited) != expected_count:
+            return False
+            
+        # 3. Backward BFS (Detects Dead Ends)
+        backward_visited = {end_id}
+        queue = deque([end_id])
+        
+        while queue:
+            curr = queue.popleft()
+            for neighbor in backward_adj[curr]:
+                if neighbor not in backward_visited:
+                    backward_visited.add(neighbor)
+                    queue.append(neighbor)
+                    
+        # 4. Final Validation
+        # If the backward search also reached exactly every node, the graph is perfect.
+        return len(backward_visited) == expected_count
     
     def remove_cycles(self) -> int:
         """

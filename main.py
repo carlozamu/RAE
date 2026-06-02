@@ -29,11 +29,9 @@ TARGET_FITNESS = 95.0        # Higher is better (Max is 100.0)
 STARTING_PROMPT = "Task: State only the one kinship word (from the posible answers) that describes the family relationship."
 NUM_INDIVIDUALS = 50
 TARGET_SPECIES = 4
-DROPOFF_AGE = 14 # Generations a species can survive without improving max fitness  
 BATCH_SIZE = 50 # Number of problems each individual is evaluated on per generation
 SELECTION_PRESSURE = 1.5
 ELITISM_RATIO = 0.2
-PROPORTIONAL_STEP = 0.5 # P-Controller gain for dynamic thresholding
 
 async def run_evolution():
     clear_log_file() # Start with a clean slate for logging
@@ -45,7 +43,22 @@ async def run_evolution():
     mutator = Mutator(breeder_llm_client=llm_client)
     dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
     
-    # 2. Population Initialization
+    # 2. Setup the Micro and Macro Layers
+    # Micro-Layer: Parent selection and breeding
+    selector = RankBasedSelection(selection_pressure=SELECTION_PRESSURE)
+    breeder = SpeciesBreeder(selector=selector, mutator=mutator, elitism_ratio=ELITISM_RATIO)
+    plotter = Plotter()
+    history_manager = HistoryTracker()
+    generation_idx = 0
+    
+    # Macro-Layer: Ecology, speciation, and resource allocation
+    speciation_engine = SpeciationEngine(
+        breeder=breeder,
+        target_population_size=NUM_INDIVIDUALS,
+        target_species_count=TARGET_SPECIES,
+    )
+    
+    # 3. Population Initialization
     initial_problems_pool = dataset_manager.get_batch(batch_size=BATCH_SIZE)
     log_and_print("🌱 Seeding Minimal Population...")
     start_init_time = time.time()
@@ -56,7 +69,13 @@ async def run_evolution():
         llm_client=llm_client, 
         fitness_evaluator=fitness_evaluator
     )
+    log_and_print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
+    evaluated_population: list[AgentGenome] = [individual.genome for individual in first_gen]
+    speciation_engine._speciate_population(evaluated_population)
+    log_and_print("✅ Evolution Engine Ready.")
     init_duration = time.time() - start_init_time
+
+    # Baseline Evaluations for Generation 0
     zero_shot_stats = await evaluate_baseline_batch(
             baseline_name="Zero-Shot Baseline",
             problem_batch=initial_problems_pool,
@@ -71,36 +90,22 @@ async def run_evolution():
         fitness=fitness_evaluator,
         prompt_builder_func=CLUTTRManager.build_prompt_clutrr_few_shots
     )
+
+    # Log initial generation summary and plot
     log_and_print(f"\n📊 Generation 0 Summary:")
     log_and_print(f"Baseline Zero-Shot run in {zero_shot_stats['execution_time']:.2f}s with {zero_shot_stats['accuracy']:.2f}% accuracy & {zero_shot_stats['fitness']:.2f} fitness.")
     log_and_print(f"Baseline Few-Shots run in {few_shots_stats['execution_time']:.2f}s with {few_shots_stats['accuracy']:.2f}% accuracy & {few_shots_stats['fitness']:.2f} fitness.")
-    log_and_print(f"ERA initialized in {init_duration:.2f}s. with {first_gen[0].genome.fitness:.2f} best fitness.") 
+    log_and_print(f"ERA initialized in {init_duration:.2f}s. with {first_gen[0].genome.fitness:.2f} fitness and {first_gen[0].genome.accuracy:.2f}% accuracy.") 
     log_and_print("-"*30)
-
-    # 3. Setup the Micro and Macro Layers
-    # Micro-Layer: Parent selection and breeding
-    selector = RankBasedSelection(selection_pressure=SELECTION_PRESSURE)
-    breeder = SpeciesBreeder(selector=selector, mutator=mutator, elitism_ratio=ELITISM_RATIO)
-    plotter = Plotter()
-    history_manager = HistoryTracker()
-    
-    # Macro-Layer: Ecology, speciation, and resource allocation
-    speciation_engine = SpeciationEngine(
-        breeder=breeder,
-        target_population_size=NUM_INDIVIDUALS,
-        target_species_count=TARGET_SPECIES,
-        dropoff_age=DROPOFF_AGE,
-        proportional_step=PROPORTIONAL_STEP
-    )
-    log_and_print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
-    evaluated_population: list[AgentGenome] = [individual.genome for individual in first_gen]
-    speciation_engine._speciate_population(evaluated_population)
-    log_and_print("✅ Evolution Engine Ready.")
+    history_manager.record_generation(speciation_engine.species_list, zero_shot_stats, few_shots_stats)
+    plot_path = plotter.plot_accuracy_vs_tokens(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
+    plot_2_path = plotter.plot_fitness_vs_complexity(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
+    subprocess.Popen(['xdg-open', plot_path])
+    subprocess.Popen(['xdg-open', plot_2_path]) 
 
     # 4. Main Evolution Loop
     log_and_print("\n🚀 Starting Evolution Loop...")
     start_time = time.time()
-    generation_idx = 0
 
     while generation_idx < MAX_GENERATIONS:
         gen_x_starting_time = time.time()
@@ -164,8 +169,10 @@ async def run_evolution():
 
         # F. Plot Generation for visual analysis
         history_manager.record_generation(speciation_engine.species_list, zero_shot_stats, few_shots_stats)
-        plot_path = plotter.plot_complexity_vs_fitness(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
+        plot_path = plotter.plot_accuracy_vs_tokens(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
+        plot_2_path = plotter.plot_fitness_vs_complexity(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
         subprocess.Popen(['xdg-open', plot_path])
+        subprocess.Popen(['xdg-open', plot_2_path]) 
 
         # G. Stop Criteria Checks
         if best_fit >= TARGET_FITNESS:

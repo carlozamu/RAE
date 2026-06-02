@@ -131,13 +131,17 @@ class Plotter:
         """Safely extracts (accuracy, avg_tokens) whether passed as a tuple or dict."""
         return float(baseline_data.get("accuracy", 0.0)), float(baseline_data.get("avg_tokens", 0.0))
 
+    def _parse_baseline_F(self, baseline_data: dict) -> float:
+        """Safely extracts (fitness, avg_tokens) whether passed as a tuple or dict."""
+        return float(baseline_data.get("fitness", 0.0))
+
     def plot_accuracy_vs_tokens(
         self, 
         generation_data: list, 
         zero_shot_stats: dict, 
         few_shots_stats: dict, 
         generation_idx: int, 
-        output_dir="Utils/Logs/Plots"
+        output_dir="Utils/Logs/PlotsAT"
     ) -> str:
         """
         Plots Accuracy (Y-axis) vs Token Usage (X-axis).
@@ -150,25 +154,19 @@ class Plotter:
         zs_acc, zs_tokens = self._parse_baseline(zero_shot_stats)
         fs_acc, fs_tokens = self._parse_baseline(few_shots_stats)
 
-        xs, ys, colors, sizes = [], [], [], []
-        max_tokens_found = max(zs_tokens, fs_tokens)
+        xs, ys, colors = [], [], []
 
         # 2. Extract Data from Genomes
         for species in generation_data:
-            species_color = self._get_species_color(str(species.id))
-            for member in species.members:
-                tokens = float(member.avg_tokens)
-                acc = float(member.accuracy)
-                
-                xs.append(tokens)
-                ys.append(acc)
-                colors.append(species_color)
-                
-                # Dynamic sizing based on performance (better = slightly larger point)
-                sizes.append(60 + (acc * 0.8)) 
-                
-                if tokens > max_tokens_found:
-                    max_tokens_found = tokens
+            if species.alive:
+                species_color = self._get_species_color(str(species.id))
+                for member in species.members:
+                    tokens = min(1500, float(member.avg_tokens))
+                    acc = float(member.accuracy)
+                    
+                    xs.append(tokens)
+                    ys.append(acc)
+                    colors.append(species_color)              
 
         # 3. Setup Beautiful Plot Aesthetics
         plt.figure(figsize=(11, 7), facecolor='#FAFAFA')
@@ -182,24 +180,24 @@ class Plotter:
         ax.spines['left'].set_color('#333333')
         ax.spines['bottom'].set_color('#333333')
 
-        # 4. Plot Population Scatter
-        if xs:
-            plt.scatter(
-                xs, ys, c=colors, s=sizes, alpha=0.75, 
-                edgecolors='white', linewidth=1.0, zorder=3
-            )
-
-        # 5. Plot Baselines (Giant Stars so they cannot be missed)
+        # 4. Plot Baselines (Giant Stars so they cannot be missed)
         plt.scatter(
             [zs_tokens], [zs_acc], 
             color=self.zero_shot_baseline_color, marker='*', s=450, 
-            edgecolors='white', linewidth=1.5, zorder=5
+            edgecolors='white', linewidth=1.5, zorder=4
         )
         plt.scatter(
             [fs_tokens], [fs_acc], 
             color=self.few_shot_baseline_color, marker='*', s=450, 
-            edgecolors='black', linewidth=1.0, zorder=5 
+            edgecolors='black', linewidth=1.0, zorder=3
         )
+
+        # 5. Plot Population Scatter
+        if xs:
+            plt.scatter(
+                xs, ys, c=colors, alpha=0.75, 
+                edgecolors='white', linewidth=1.0, zorder=5
+            )
 
         # 6. Formatting & Labels
         plt.title(f"Generation {generation_idx} Ecology: Accuracy vs. Efficiency", 
@@ -208,11 +206,12 @@ class Plotter:
         plt.xlabel("Average Token Usage (Lower is Better)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
         plt.ylabel("Accuracy Score (0 - 100)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
 
-        # Define axis limits
+        # Define axis limits & ticks
         plt.ylim(-5, 105)
-        # Pad the X-axis by 10% to give the right-most point breathing room
-        padding_x = max_tokens_found * 0.1 if max_tokens_found > 0 else 100
-        plt.xlim(0, max_tokens_found + padding_x)
+        plt.yticks([5, 10, 15, 20, 25, 50, 75, 100])
+        
+        plt.xlim(90, 1010)
+        plt.xticks(np.arange(100, 1550, 100)) # 100 to 1000 in steps of 100
 
         # 7. Professional Legend Construction
         legend_handles = []
@@ -252,6 +251,124 @@ class Plotter:
         
         return filename
      
+    def plot_fitness_vs_complexity(
+        self, 
+        generation_data: list[Species], 
+        zero_shot_stats: dict, 
+        few_shots_stats: dict, 
+        generation_idx: int, 
+        output_dir="Utils/Logs/PlotsFC"
+    ) -> str:
+        """
+        Plots Fitness (Y-axis) vs Complexity (X-axis).
+        Includes baseline comparisons plotted as prominent stars.
+        """
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # 1. Parse Baselines
+        zs_fitness  = self._parse_baseline_F(zero_shot_stats)
+        fs_fitness = self._parse_baseline_F(few_shots_stats)
+        zs_complexity = 1
+        fs_complexity = 4
+
+        xs, ys, colors = [], [], []
+
+        # 2. Extract Data from Genomes
+        for species in generation_data:
+            if species.alive:
+                species_color = self._get_species_color(str(species.id))
+                for member in species.members:
+                    fitness = float(member.fitness)
+                    complexity = min(8, len(member.nodes))
+                    
+                    xs.append(complexity)
+                    ys.append(fitness)
+                    colors.append(species_color)
+        # 3. Setup Beautiful Plot Aesthetics
+        plt.figure(figsize=(11, 7), facecolor='#FAFAFA')
+        ax = plt.gca()
+        ax.set_facecolor('#FAFAFA')
+        
+        # Subdued grid lines
+        ax.grid(True, linestyle='--', color='#E0E0E0', alpha=0.8, zorder=0)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#333333')
+        ax.spines['bottom'].set_color('#333333')
+
+        # 4. Plot Baselines (Giant Stars so they cannot be missed)
+        plt.scatter(
+            [zs_complexity], [zs_fitness], 
+            color=self.zero_shot_baseline_color, marker='*', s=450, 
+            edgecolors='white', linewidth=1.5, zorder=4
+        )
+        plt.scatter(
+            [fs_complexity], [fs_fitness], 
+            color=self.few_shot_baseline_color, marker='*', s=450, 
+            edgecolors='black', linewidth=1.0, zorder=3 
+        )
+
+        # 5. Plot Population Scatter
+        if xs:
+            plt.scatter(
+                xs, ys, c=colors, alpha=0.75, 
+                edgecolors='white', linewidth=1.0, zorder=5
+            )
+
+        # 6. Formatting & Labels
+        plt.title(f"Generation {generation_idx} Ecology: Fitness vs. Complexity", 
+                  fontsize=16, fontweight='bold', color='#1A1A1A', pad=20)
+        
+        plt.xlabel("Complexity (nodes count)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
+        plt.ylabel("Fitness Score (0 - 100)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
+
+        # Define axis limits & ticks
+        plt.ylim(-5, 105)
+        plt.yticks([5, 10, 15, 20, 25, 50, 75, 100])
+        
+        plt.xlim(0.5, 8)
+        plt.xticks(np.arange(1, 9, 1)) # Steps of 1 from 1 to 8
+
+        # 7. Professional Legend Construction
+        legend_handles = []
+        
+        # Add Baselines to legend first
+        legend_handles.append(plt.Line2D([0], [0], marker='*', color='w', label="Zero-Shot Baseline", 
+                                       markerfacecolor=self.zero_shot_baseline_color, markersize=16, 
+                                       markeredgecolor='white'))
+        legend_handles.append(plt.Line2D([0], [0], marker='*', color='w', label="Few-Shot Baseline", 
+                                       markerfacecolor=self.few_shot_baseline_color, markersize=16, 
+                                       markeredgecolor='black'))
+
+        # Add Active Species
+        active_species_ids = sorted([str(s.id) for s in generation_data])
+        for s_key in active_species_ids:
+            display_label = f"Species {s_key[:6]}" if len(s_key) > 6 else f"Species {s_key}"
+            patch = plt.Line2D([0], [0], marker='o', color='w', label=display_label, 
+                               markerfacecolor=self.species_colors_registry[s_key], markersize=10, 
+                               markeredgecolor='white', alpha=0.8)
+            legend_handles.append(patch)
+        
+        # Render Legend cleanly outside the main canvas
+        if legend_handles:
+            legend = plt.legend(
+                handles=legend_handles, title="Ecology Types", 
+                bbox_to_anchor=(1.02, 1), loc='upper left', frameon=True, 
+                edgecolor='#E0E0E0', facecolor='white', fancybox=True
+            )
+            legend.get_title().set_fontweight('bold')
+        
+        plt.tight_layout()
+
+        # 8. Save Crisp High-Res Output
+        filename = f"{output_dir}/gen_{generation_idx}_fitness_vs_complexity.png"
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        return filename
+     
+
 # --- 3. History Utility ---
 class HistoryTracker:
     """

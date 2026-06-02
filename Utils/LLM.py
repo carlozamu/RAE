@@ -60,6 +60,7 @@ class LLM:
                     "model": self.model_name,
                     "prompt": user_prompt,
                     "stream": False,
+                    "raw": True,
                     "options": {
                         "num_predict": max_tokens, # Ollama's version of max_tokens
                         "temperature": temperature,

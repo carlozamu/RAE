@@ -9,7 +9,7 @@ class UnifiedFitnessCalculator:
     def __init__(self,
                  llm: LLM,
                  accuracy_score=1.0,         
-                 max_penalty=0.9): 
+                 max_penalty=0.25): 
         self.acc_score = accuracy_score
         self.max_penalty = max_penalty
         self.llm = llm

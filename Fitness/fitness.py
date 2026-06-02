@@ -11,8 +11,6 @@ class Fitness:
     def __init__(self, llm: LLM, use_reasoning: bool = False) -> None:
         self.use_reasoning = use_reasoning
         self.calculator = UnifiedFitnessCalculator(
-            accuracy_score=1.0,
-            max_penalty=0.9,
             llm=llm
         )
         self.best_accuracy = 0.0

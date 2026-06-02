@@ -80,6 +80,7 @@ class SpeciesBreeder:
             
             # Reset fitness
             child.fitness = 0.0 
+
             return child
 
         # Create a list of tasks, but don't run them sequentially

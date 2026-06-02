@@ -5,11 +5,6 @@ from typing import List
 from Genome.agent_genome import AgentGenome
 
 class Species:
-    # Asymptotic Distance Coefficients
-    c_nodes = 0.1   # Penalty per unmatched node
-    c_edges = 0.1   # Penalty per unmatched connection
-    c_weight = 0.5   # Penalty for semantic drift (Cosine distance)
-
     def __init__(self, representative: AgentGenome, species_id: int):
         self.id = species_id
         self.representative = representative
@@ -19,6 +14,7 @@ class Species:
         self.age = 0
         self.generations_without_improvement = 0
         self.max_fitness_ever = representative.fitness
+        self.alive = True
 
     def add_member(self, genome: AgentGenome):
         self.members.append(genome)
@@ -28,13 +24,19 @@ class Species:
         if not self.members:
             return 0.0
         return sum(m.fitness for m in self.members) / len(self.members)
+    
+    def get_avg_accuracy(self) -> float:
+        """Calculates the average accuracy of the species."""
+        if not self.members:
+            return 0.0
+        return sum(m.accuracy for m in self.members) / len(self.members)
 
     def update_representative(self):
         """Picks a random member from this generation to represent the next."""
-        if self.members:
+        if self.members and self.alive:
             self.representative = random.choice(self.members)
-        self.members = [] 
-        self.age += 1
+            self.age += 1
+        self.members = []  # Reset the member list
 
     def update_stagnation(self):
         """Tracks if the species has stopped improving."""
@@ -48,48 +50,25 @@ class Species:
         else:
             self.generations_without_improvement += 1
 
-    def compatibility_distance(self, candidate: AgentGenome) -> float:
+    def compatibility_distance(self, other_genome: AgentGenome) -> float:
         """
-        Calculates the homological distance between two genomes.
-        Applies Stanley's N=1 rule for small graphs to prevent ratio inversion.
+        Calculates distance using Jaccard Similarity of Innovation Numbers.
+        Returns a strict float between 1.0 (Identical) and 0.0 (Completely Alien).
         """
-        rep_nodes = set(self.representative.nodes.keys())
-        cand_nodes = set(candidate.nodes.keys())
-        rep_edges = set(e for e, conn in self.representative.connections.items() if conn.enabled)
-        cand_edges = set(e for e, conn in candidate.connections.items() if conn.enabled)
-
-        # 1. The Small Graph Fix (Stanley's Rule)
-        # If graphs are under 20 nodes, N is forced to 1. 
-        # This stops large graphs from diluting their own penalties.
-        N_nodes = max(len(rep_nodes), len(cand_nodes))
-        N_nodes = 1 if N_nodes < 20 else N_nodes
+        # Get sets of innovation numbers for both nodes and connections
+        self_nodes = set(self.representative.nodes.keys())
+        other_nodes = set(other_genome.nodes.keys())
         
-        N_edges = max(len(rep_edges), len(cand_edges))
-        N_edges = 1 if N_edges < 20 else N_edges
+        # Jaccard Math
+        shared_genes = self_nodes.intersection(other_nodes)
+        max_nodes = max(len(self_nodes), len(other_nodes))
 
-        # 2. Absolute Topological Differences
-        unmatched_nodes_count = len(rep_nodes.symmetric_difference(cand_nodes))
-        unmatched_edges_count = len(rep_edges.symmetric_difference(cand_edges))
+        if max_nodes == 0:
+            return 0.0 # Both are totally empty graphs
+            
+        similarity = len(shared_genes) / max_nodes
         
-        shared_nodes_count = len(rep_nodes.intersection(cand_nodes))
-        
-        # 3. Average Semantic Difference (for shared nodes only)
-        avg_weight_diff = self._compute_average_weight_difference(self.representative, candidate)
-
-        # 4. Dynamic Semantic Scaling
-        if shared_nodes_count > 0:
-            semantic_scale = min(1.0, shared_nodes_count / 5.0)
-        else:
-            semantic_scale = 0.0
-
-        # 5. Compute Linear Distance
-        distance = (
-            (self.c_nodes * (unmatched_nodes_count / N_nodes)) +
-            (self.c_edges * (unmatched_edges_count / N_edges)) +
-            (self.c_weight * semantic_scale * avg_weight_diff)
-        )
-        
-        return distance*10
+        return similarity
     
     def _compute_average_weight_difference(self, ind1: AgentGenome, ind2: AgentGenome) -> float:
         """
