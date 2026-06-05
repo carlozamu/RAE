@@ -9,7 +9,7 @@ import torch
 
 # --- Internal Modules ---
 from Fitness.fitness import Fitness
-from Data.cluttr import CLUTTRManager
+from Data.clutrr import CLUTTRManager
 from Utils.LLM import LLM
 
 # --- Configuration ---

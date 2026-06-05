@@ -1,5 +1,3 @@
-from math import inf
-import os
 from typing import Dict, Any
 from Gene.gene import PromptNode
 from Genome.agent_genome import AgentGenome

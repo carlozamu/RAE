@@ -1,7 +1,7 @@
 import asyncio
 from typing import List, Dict, Tuple
 from Utils.LLM import LLM
-from Data.cluttr import CLUTTRManager
+from Data.clutrr import CLUTTRManager
 from Phenotype.phenotype import Phenotype
 from Fitness.fitness_function import UnifiedFitnessCalculator
 
@@ -48,41 +48,44 @@ class Fitness:
         Helper method to evaluate a single individual across all problems sequentially,
         preserving the Circuit Breaker logic.
         """
-        total_score = 0.0
-        failed_count = 0
-        accuracy = 0
-        problems_evaluated = 0
-        token_usages = []
-        
-        for i, problem in enumerate(problem_pool):
-            # This remains sequential per-individual to support the DAG and circuit breaker
-            score, tokens = await self._evaluate_single_problem(individual, problem)
-            total_score += score
-            problems_evaluated += 1
+        if not individual.genome.evaluated:
+            total_score = 0.0
+            failed_count = 0
+            accuracy = 0
+            problems_evaluated = 0
+            token_usages = []
             
-            if tokens > 0:
-                token_usages.append(tokens)
-            
-            if score < 0.1:
-                failed_count += 1
-            else:
-                failed_count = 0 
-                accuracy += 1
+            for i, problem in enumerate(problem_pool):
+                # This remains sequential per-individual to support the DAG and circuit breaker
+                score, tokens = await self._evaluate_single_problem(individual, problem)
+                total_score += score
+                problems_evaluated += 1
                 
-            # --- CIRCUIT BREAKER ---
-            if failed_count > len(problem_pool) * PERCENTAGE_FAILURE_THRESHOLD:
-                break 
+                if tokens > 0:
+                    token_usages.append(tokens)
+                
+                if score < 0.1:
+                    failed_count += 1
+                else:
+                    failed_count = 0 
+                    accuracy += 1
+                    
+                # --- CIRCUIT BREAKER ---
+                if failed_count > len(problem_pool) * PERCENTAGE_FAILURE_THRESHOLD:
+                    break 
+            
+            # Calculate final fitness
+            avg_score = ((total_score) / (problems_evaluated))*100 if problems_evaluated > 0 else 0.0
+            accuracy = ((accuracy) / (problems_evaluated))*100 if problems_evaluated > 0 else 0.0
+            avg_tokens = sum(token_usages)/len(token_usages) if token_usages else 0.0
+            individual.genome.fitness = float(max(0.01, avg_score))
+            individual.genome.accuracy = accuracy
+            individual.genome.avg_tokens = avg_tokens
         
-        # Calculate final fitness
-        avg_score = ((total_score) / (problems_evaluated))*100 if problems_evaluated > 0 else 0.0
-        accuracy = ((accuracy) / (problems_evaluated))*100 if problems_evaluated > 0 else 0.0
-        avg_tokens = sum(token_usages)/len(token_usages) if token_usages else 0.0
-        individual.genome.fitness = float(max(0.01, avg_score))
-        individual.genome.accuracy = accuracy
-        individual.genome.avg_tokens = avg_tokens
-        
-        # Return tokens so the parent gather() can collect them all
-        return token_usages, accuracy
+            # Return tokens so the parent gather() can collect them all
+            return token_usages, accuracy
+        else:
+            return [individual.genome.avg_tokens], individual.genome.accuracy
 
     async def evaluate_population(self, population: List[Phenotype], problem_pool: List[Dict]):
         """

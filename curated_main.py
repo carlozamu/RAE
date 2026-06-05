@@ -42,6 +42,7 @@ async def run_evolution():
     fitness_evaluator = Fitness(llm=llm_client, use_reasoning=False)
     mutator = Mutator(breeder_llm_client=llm_client)
     dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
+    dataset = dataset_manager.get_or_create_curated_dataset() # This will either load a frozen dataset or create and freeze a new one
     
     # 2. Setup the Micro and Macro Layers
     # Micro-Layer: Parent selection and breeding
@@ -59,13 +60,12 @@ async def run_evolution():
     )
     
     # 3. Population Initialization
-    initial_problems_pool = dataset_manager.get_batch(batch_size=BATCH_SIZE)
     log_and_print("🌱 Seeding Minimal Population...")
     start_init_time = time.time()
     first_gen = await initialize_population(
         num_individuals=NUM_INDIVIDUALS, 
         prompt=STARTING_PROMPT, 
-        problems_pool=initial_problems_pool, 
+        problems_pool=dataset, 
         llm_client=llm_client, 
         fitness_evaluator=fitness_evaluator
     )
@@ -78,14 +78,14 @@ async def run_evolution():
     # Baseline Evaluations for Generation 0
     zero_shot_stats = await evaluate_baseline_batch(
             baseline_name="Zero-Shot Baseline",
-            problem_batch=initial_problems_pool,
+            problem_batch=dataset,
             llm_client=llm_client,
             fitness=fitness_evaluator,
             prompt_builder_func=CLUTTRManager.build_prompt_clutrr_baseline
     )
     few_shots_stats = await evaluate_baseline_batch(
         baseline_name="Few-Shot Baseline",
-        problem_batch=initial_problems_pool,
+        problem_batch=dataset,
         llm_client=llm_client,
         fitness=fitness_evaluator,
         prompt_builder_func=CLUTTRManager.build_prompt_clutrr_few_shots
@@ -121,26 +121,9 @@ async def run_evolution():
 
         # B. THE EVALUATION STEP
         log_and_print(f"🧪 Fetching new {BATCH_SIZE} problem pool and evaluating {len(unevaluated_next_gen)} offspring...")
-        current_problem_pool = dataset_manager.get_batch(batch_size=BATCH_SIZE)
         start_eval_time = time.time()
-        await fitness_evaluator.evaluate_population(unevaluated_next_gen, current_problem_pool)
+        await fitness_evaluator.evaluate_population(unevaluated_next_gen, dataset)
         eval_duration = time.time() - start_eval_time
-
-        # C. THE BASELINE EVALUATION STEP
-        zero_shot_stats = await evaluate_baseline_batch(
-            baseline_name="Zero-Shot Baseline",
-            problem_batch=current_problem_pool,
-            llm_client=llm_client,
-            fitness=fitness_evaluator,
-            prompt_builder_func=CLUTTRManager.build_prompt_clutrr_baseline
-        )
-        few_shots_stats = await evaluate_baseline_batch(
-            baseline_name="Few-Shot Baseline",
-            problem_batch=current_problem_pool,
-            llm_client=llm_client,
-            fitness=fitness_evaluator,
-            prompt_builder_func=CLUTTRManager.build_prompt_clutrr_few_shots
-        )
         
         # D. Prepare for next iteration
         evaluated_population: list[AgentGenome] = [individual.genome for individual in unevaluated_next_gen]

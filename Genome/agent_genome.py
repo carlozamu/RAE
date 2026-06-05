@@ -1,6 +1,6 @@
-from collections import deque
 import uuid
 import math
+from collections import deque
 from Gene.gene import PromptNode
 from Gene.connection import Connection
 
@@ -14,6 +14,7 @@ class AgentGenome:
         self.fitness = fitness if fitness is not None else 0.0
         self.accuracy = 0.0
         self.avg_tokens = 0.0
+        self.evaluated = False
 
     def add_node(self, node: PromptNode):
         self.nodes[node.innovation_number] = node
@@ -106,6 +107,7 @@ class AgentGenome:
         new_genome.avg_tokens = self.avg_tokens
         new_genome.start_node_innovation_number = self.start_node_innovation_number
         new_genome.end_node_innovation_number = self.end_node_innovation_number
+        new_genome.evaluated = self.evaluated
         
         # Copy all nodes (preserving IDs)
         for node in self.nodes.values():
@@ -208,8 +210,6 @@ class AgentGenome:
         
         return score
     
-    from collections import deque
-
     def verify_all_paths_lead_to_end(self) -> bool:
         """
         Strict structural integrity check: O(V + E) Time, O(V) Space.

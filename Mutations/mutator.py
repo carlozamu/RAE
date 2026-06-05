@@ -395,6 +395,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             mutation_type = self._pick_from_cdf(arch_cdf)
             if mutation_type:
                 await self._apply_global_mutation(mutated_genome, mutation_type)
+                mutated_genome.evaluated = False
                 #md_logger.log_event(f"Applied mutation {mutation_type}")
 
         # 5. Gene Level Mutations (Per Node Check)
@@ -403,6 +404,8 @@ mutator = Mutator(breeder_llm, config=tuning_config)
 
         # 6. Check for genome consistency
         mutated_genome.remove_cycles()
+
+        
 
         return mutated_genome
 
@@ -430,9 +433,9 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         for node in nodes_snapshot:
             # Roll dice for this specific node
             if random.random() < p_mutate:
+                genome.evaluated = False
                 
                 mut_type = self._pick_from_cdf(gene_cdf)
-
                 
                 if mut_type == MutType.GENE_SPLIT:
                     await self._handle_split(genome, node)
