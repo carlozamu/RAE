@@ -9,11 +9,7 @@ class Phenotype:
         self.genome = genome
         self.llm = llm_client
 
-    async def run(self, problem: str) -> Dict[str, Any]:
-        # 1. Get Plan
-        # execution_order is [(NodeObject, [Parent_IDs]), ...]
-        execution_order: list[tuple[PromptNode, list[int]]] = self.genome.get_execution_order() 
-
+    async def run(self, problem: str, execution_order: list[tuple[PromptNode, list[int]]]) -> Dict[str, Any]:
         # 1. Build the execution sequence as a formatted Markdown string list
         order_lines = []
         for step_idx, (node, parents) in enumerate(execution_order):
@@ -69,7 +65,6 @@ class Phenotype:
                         parent_turn = f"<start_of_turn>user\n{parent_instructions}<end_of_turn>\n<start_of_turn>model\n{parent_answer}<end_of_turn>\n"
                         context_parts.append(parent_turn)
                      
-            # Chek if it is the last node
             context_parts.append(f"<start_of_turn>user\n{node.instruction}<end_of_turn>\n<start_of_turn>model\n") # Leave model turn open for answer
 
             full_context = "".join(context_parts)

@@ -25,11 +25,11 @@ MODEL_NAME = "google/gemma-3-1b-it" # Ensure this matches your local Ollama or v
 BASE_URL = "http://localhost:8000"  # Ensure this matches your local Ollama or vLLM setup
 MAX_GENERATIONS = 500
 MAX_TIME_SECONDS = 3600 * 10 # 10 Hours
-TARGET_FITNESS = 95.0        # Higher is better (Max is 100.0)
+TARGET_FITNESS = 20.0        # Higher is better (Max is 100.0)
 STARTING_PROMPT = "Task: State only the one kinship word (from the posible answers) that describes the family relationship."
 NUM_INDIVIDUALS = 50
 TARGET_SPECIES = 4
-BATCH_SIZE = 50 # Number of problems each individual is evaluated on per generation
+#BATCH_SIZE = 50 # Number of problems each individual is evaluated on per generation
 SELECTION_PRESSURE = 1.5
 ELITISM_RATIO = 0.2
 
@@ -95,7 +95,7 @@ async def run_evolution():
     log_and_print(f"\n📊 Generation 0 Summary:")
     log_and_print(f"Baseline Zero-Shot run in {zero_shot_stats['execution_time']:.2f}s with {zero_shot_stats['accuracy']:.2f}% accuracy & {zero_shot_stats['fitness']:.2f} fitness.")
     log_and_print(f"Baseline Few-Shots run in {few_shots_stats['execution_time']:.2f}s with {few_shots_stats['accuracy']:.2f}% accuracy & {few_shots_stats['fitness']:.2f} fitness.")
-    log_and_print(f"ERA initialized in {init_duration:.2f}s. with {first_gen[0].genome.fitness:.2f} fitness and {first_gen[0].genome.accuracy:.2f}% accuracy.") 
+    log_and_print(f"ERA initialized in {init_duration:.2f}s. with {first_gen[0].genome.accuracy:.2f}% accuracy and {first_gen[0].genome.fitness:.2f} fitness.") 
     log_and_print("-"*30)
     history_manager.record_generation(speciation_engine.species_list, zero_shot_stats, few_shots_stats)
     plot_path = plotter.plot_accuracy_vs_tokens(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
@@ -120,7 +120,7 @@ async def run_evolution():
         log_and_print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
 
         # B. THE EVALUATION STEP
-        log_and_print(f"🧪 Fetching new {BATCH_SIZE} problem pool and evaluating {len(unevaluated_next_gen)} offspring...")
+        log_and_print(f"🧪 Fetching new {len(dataset)} problem pool and evaluating {len(unevaluated_next_gen)} offspring...")
         start_eval_time = time.time()
         await fitness_evaluator.evaluate_population(unevaluated_next_gen, dataset)
         eval_duration = time.time() - start_eval_time

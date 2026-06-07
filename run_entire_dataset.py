@@ -70,7 +70,7 @@ async def run_baseline():
     
     # 2. Fetch the ENTIRE dataset
     print("Fetching the COMPLETE dataset for stratified baseline...")
-    initial_problems_pool = dataset_manager.get_entire_dataset_stratified()
+    initial_problems_pool = dataset_manager.get_entire_dataset_stratified(dataset_manager.build_prompt_clutrr_baseline)
     #initial_problems_pool = dataset_manager.get_full_split()
 
     print(f"Starting Baseline evaluation with {MAX_CONCURRENT_REQUESTS} concurrent workers...\n")

@@ -133,7 +133,7 @@ class CLUTTRManager:
             
         return batch
 
-    def get_entire_dataset_stratified(self) -> list[dict]:
+    def get_entire_dataset_stratified(self, prompt_function: callable) -> list[dict]:
         """
         Returns every single problem across ALL splits (train, validation, test).
         Extracts the reasoning hop length from 'task_name' for stratified analysis.
@@ -159,7 +159,7 @@ class CLUTTRManager:
                 except (IndexError, ValueError):
                     reasoning_length = 0 # Fallback if data is malformed
                 
-                prompt = self.build_prompt_clutrr_baseline(story, query)
+                prompt = prompt_function(story, query)
                 
                 batch.append({
                     "question": prompt,
@@ -342,7 +342,7 @@ Understand the family relationship between {name2} and {name1}, and to describe 
     
 ##---------- FUNCTIONS FOR CURATED DATASET CREATION AND FREEZING ----------##
 
-    def save_dataset_to_json(dataset: list[dict], filepath: str = "Data/curated_clutrr_subset.json"):
+    def save_dataset_to_json(self, dataset: list[dict], filepath: str = "Data/curated_clutrr_subset.json"):
         """
         Serializes the generated dataset to a JSON file to guarantee repeatability.
         Uses indent=4 to keep the file human-readable for debugging.
@@ -357,7 +357,7 @@ Understand the family relationship between {name2} and {name1}, and to describe 
         except Exception as e:
             print(f"\n[IO Error] Failed to save dataset: {e}")
 
-    def load_dataset_from_json(filepath: str = "Data/curated_clutrr_subset.json") -> list[dict]:
+    def load_dataset_from_json(self, filepath: str = "Data/curated_clutrr_subset.json") -> list[dict]:
         """
         Loads a strictly frozen dataset from a JSON file.
         """
@@ -373,23 +373,12 @@ Understand the family relationship between {name2} and {name1}, and to describe 
             print(f"\n[IO Error] File {filepath} is corrupted or not valid JSON.")
             return []
     
-    def get_curated_dataset(self, cache_dir=None) -> list[dict]:
-        split_config = "gen_train234_test2to10"
-        
-        print(f"Loading CLUTTR dataset: CLUTRR/v1 - {split_config}...")
-        try:
-            # trust_remote_code=True is required for datasets v2.19.0 compatibility
-            dataset = load_dataset("CLUTRR/v1", split_config, cache_dir=cache_dir, trust_remote_code=True)
-            print("CLUTTR dataset loaded successfully.\n")
-        except Exception as e:
-            print(f"Error loading CLUTTR dataset: {e}")
-            return []
-
+    def get_curated_dataset(self) -> list[dict]:
         # 1. Group actual data by Relation -> Complexity -> List of Items
         data_store = defaultdict(lambda: defaultdict(list))
         
-        for split_name in dataset.keys():
-            for item in dataset[split_name]:
+        for split_name in self.dataset.keys():
+            for item in self.dataset[split_name]:
                 target = item.get("target_text", "")
                 task_name = item.get("task_name", "")
                 
@@ -467,48 +456,48 @@ Understand the family relationship between {name2} and {name1}, and to describe 
         # ==========================================
         
         # Rebuild distribution dictionary specifically from the extracted subset
-        curated_distribution = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+        # curated_distribution = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
         
-        for item in curated_dataset:
-            target = item["answer"]
-            complexity = item["metadata"]["reasoning_length"]
-            noise = item["metadata"]["injected_noise"]
-            curated_distribution[target][complexity][noise] += 1
+        # for item in curated_dataset:
+        #     target = item["answer"]
+        #     complexity = item["metadata"]["reasoning_length"]
+        #     noise = item["metadata"]["injected_noise"]
+        #     curated_distribution[target][complexity][noise] += 1
 
-        # Print 1: Dataset Distribution Profile
-        print("=== CURATED DATASET DISTRIBUTION PROFILE ===")
-        for relation in sorted(curated_distribution.keys()):
-            print(f"Target Relation: [{relation.upper()}]")
-            total_for_relation = 0
+        # # Print 1: Dataset Distribution Profile
+        # print("=== CURATED DATASET DISTRIBUTION PROFILE ===")
+        # for relation in sorted(curated_distribution.keys()):
+        #     print(f"Target Relation: [{relation.upper()}]")
+        #     total_for_relation = 0
             
-            for complexity in sorted(curated_distribution[relation].keys()):
-                noise_counts = curated_distribution[relation][complexity]
-                total_for_complexity = sum(noise_counts.values())
-                total_for_relation += total_for_complexity
+        #     for complexity in sorted(curated_distribution[relation].keys()):
+        #         noise_counts = curated_distribution[relation][complexity]
+        #         total_for_complexity = sum(noise_counts.values())
+        #         total_for_relation += total_for_complexity
                 
-                noise_breakdown = ", ".join([f"Noise {n}: {count}" for n, count in sorted(noise_counts.items())])
-                print(f"  Complexity k={complexity} (Total: {total_for_complexity}) -> {noise_breakdown}")
+        #         noise_breakdown = ", ".join([f"Noise {n}: {count}" for n, count in sorted(noise_counts.items())])
+        #         print(f"  Complexity k={complexity} (Total: {total_for_complexity}) -> {noise_breakdown}")
                 
-            print(f"  [Total enforced for {relation.upper()}: {total_for_relation}]\n")
+        #     print(f"  [Total enforced for {relation.upper()}: {total_for_relation}]\n")
 
-        # Print 2: Class Distribution by Complexity
-        print("=== CURATED CLASS DISTRIBUTION BY COMPLEXITY ===")
-        complexity_distribution = defaultdict(dict)
+        # # Print 2: Class Distribution by Complexity
+        # print("=== CURATED CLASS DISTRIBUTION BY COMPLEXITY ===")
+        # complexity_distribution = defaultdict(dict)
         
-        for relation, complexities in curated_distribution.items():
-            for complexity, noises in complexities.items():
-                total = sum(noises.values())
-                if total > 0:
-                    complexity_distribution[complexity][relation] = total
+        # for relation, complexities in curated_distribution.items():
+        #     for complexity, noises in complexities.items():
+        #         total = sum(noises.values())
+        #         if total > 0:
+        #             complexity_distribution[complexity][relation] = total
 
-        for complexity in sorted(complexity_distribution.keys()):
-            print(f"Complexity k={complexity}")
+        # for complexity in sorted(complexity_distribution.keys()):
+        #     print(f"Complexity k={complexity}")
             
-            relation_counts = complexity_distribution[complexity]
-            for relation in sorted(relation_counts.keys()):
-                print(f"  -> [{relation.upper()}]: {relation_counts[relation]}")
+        #     relation_counts = complexity_distribution[complexity]
+        #     for relation in sorted(relation_counts.keys()):
+        #         print(f"  -> [{relation.upper()}]: {relation_counts[relation]}")
                 
-            print(f"  [Total classes represented at k={complexity}: {len(relation_counts)}]\n")
+        #     print(f"  [Total classes represented at k={complexity}: {len(relation_counts)}]\n")
 
         return curated_dataset
 

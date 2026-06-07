@@ -142,6 +142,14 @@ class AgentGenome:
         queue = [node_id for node_id, degree in in_degree.items() if degree == 0]
         if len(queue) > 1:
             print(f"Warning: Multiple start nodes detected in cycle detection. Queue: {queue}")
+            # Add a connection from the start node to the extra start node
+            for extra_start in queue[1:]:
+                new_conn = Connection(self.start_node_innovation_number, extra_start)
+                self.connections[new_conn.innovation_number] = new_conn
+                adjacency_list[self.start_node_innovation_number].append((extra_start, new_conn.innovation_number))
+                in_degree[extra_start] += 1
+                edge_to_target[new_conn.innovation_number] = extra_start
+            queue = [self.start_node_innovation_number]  # Reset queue to start node only
         processed_count = 0
         
         while queue:

@@ -1,5 +1,6 @@
 import asyncio
 from typing import List, Dict, Tuple
+from Gene.gene import PromptNode
 from Utils.LLM import LLM
 from Data.clutrr import CLUTTRManager
 from Phenotype.phenotype import Phenotype
@@ -16,10 +17,10 @@ class Fitness:
         self.best_accuracy = 0.0
         self.avg_accuracy = 0.0
     
-    async def _evaluate_single_problem(self, individual: Phenotype, problem: Dict) -> Tuple[float, int]:
+    async def _evaluate_single_problem(self, individual: Phenotype, problem: Dict, execution_order: list[tuple[PromptNode, list[int]]]) -> Tuple[float, int]:
         """Evaluates a single problem and returns (Score, Tokens_Used)."""        
         try:
-            response = await individual.run(problem=problem['question'])
+            response = await individual.run(problem=problem['question'], execution_order=execution_order)
             generated_ans = response['answer']
             stats = response['stats']
             token_used = stats.get('total_tokens', 0)
@@ -39,7 +40,8 @@ class Fitness:
             
         score = self.calculator.compute_score(
             is_correct=is_correct,
-            token_count=token_used
+            token_count=token_used,
+            answer_length=len(generated_ans.split()),
         )
         return score, token_used
 
@@ -54,10 +56,12 @@ class Fitness:
             accuracy = 0
             problems_evaluated = 0
             token_usages = []
+
+            execution_order = individual.genome.get_execution_order()
             
             for i, problem in enumerate(problem_pool):
                 # This remains sequential per-individual to support the DAG and circuit breaker
-                score, tokens = await self._evaluate_single_problem(individual, problem)
+                score, tokens = await self._evaluate_single_problem(individual, problem, execution_order)
                 total_score += score
                 problems_evaluated += 1
                 
@@ -81,6 +85,7 @@ class Fitness:
             individual.genome.fitness = float(max(0.01, avg_score))
             individual.genome.accuracy = accuracy
             individual.genome.avg_tokens = avg_tokens
+            individual.genome.evaluated = True
         
             # Return tokens so the parent gather() can collect them all
             return token_usages, accuracy

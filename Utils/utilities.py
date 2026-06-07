@@ -440,11 +440,12 @@ def log_generation_to_markdown(species_list: List[Species],
             
         # The members should ideally be sorted by fitness, but we use max() to be mathematically safe
         species_champion = max(species.members, key=lambda x: x.fitness)
+        species_accuracy_champion = max(species.members, key=lambda x: x.accuracy)
         species_avg_fitness = sum(m.fitness for m in species.members) / len(species.members)
-        
+        species_avg_accuracy = sum(m.accuracy for m in species.members) / len(species.members)
+
         if species_champion.fitness > global_best_fitness:
             global_best_fitness = species_champion.fitness
-            global_champion = species_champion
             
         ecology_data.append({
             "id": species.id,
@@ -453,7 +454,10 @@ def log_generation_to_markdown(species_list: List[Species],
             "members": len(species.members),
             "best_fit": species_champion.fitness,
             "avg_fit": species_avg_fitness,
-            "champion": species_champion
+            "best_acc": species_accuracy_champion.accuracy,
+            "avg_acc": species_avg_accuracy,
+            "champion": species_champion,
+            "accuracy_champion": species_accuracy_champion
         })
 
     # 2. Build the Markdown String
@@ -479,7 +483,7 @@ def log_generation_to_markdown(species_list: List[Species],
     md_lines.append("| :--------: | :-: | :--------: | :-----: | :----------: | :---------: |")
     
     for data in ecology_data:
-        md_lines.append(f"| `{data['id']}` | {data['age']} | {data['stagnation']} | {data['members']} | {data['best_fit']:.4f} | {data['avg_fit']:.4f} |")
+        md_lines.append(f"| `{data['id']}` | {data['age']} | {data['stagnation']} | {data['members']} | {data['best_fit']:.4f} | {data['avg_fit']:.4f} | {data['best_acc']:.4f} | {data['avg_acc']:.4f} |")
     
     md_lines.append("\n---\n")
     
@@ -487,10 +491,11 @@ def log_generation_to_markdown(species_list: List[Species],
     md_lines.append("### 🏆 Species Champions")
     
     for data in ecology_data:
-        champ = data['champion']
+        champ = data['accuracy_champion']
         md_lines.append(f"#### Species `{data['id']}` Champion")
         md_lines.append(f"- **Genome ID:** `{champ.id}`")
         md_lines.append(f"- **Fitness:** {data['best_fit']:.4f}")
+        md_lines.append(f"- **Accuracy:** {data['best_acc']:.4f}")
         md_lines.append(f"- **Topology:** {len(champ.nodes)} Nodes, {len([c for c in champ.connections.values() if c.enabled])} Enabled Connections")
         
         # Log the actual cognitive nodes

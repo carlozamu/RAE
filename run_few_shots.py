@@ -6,6 +6,8 @@ import asyncio
 import time
 import gc
 import torch
+from tqdm.asyncio import tqdm
+
 
 # --- Internal Modules ---
 from Fitness.fitness import Fitness
@@ -25,17 +27,15 @@ def force_cleanup():
         torch.cuda.ipc_collect()
     print("✅ GPU Memory Released.")
 
-async def _evaluate_single_problem(idx, problem, dataset_manager, llm_client, fitness, semaphore):
+async def _evaluate_single_problem(idx, problem, llm_client, fitness, semaphore):
     """Worker function with index tracking for debug printing."""
     async with semaphore:
-        story = problem['metadata']['story']
-        query = problem['metadata']['query']
-        prompt = dataset_manager.build_prompt_clutrr_few_shots(story, query)
+        prompt = problem['question']
 
         try:
             generated_ans = await llm_client.generate_text(user_prompt=prompt, temperature=0.0)
-            if idx % 100 == 0:
-                print(f"Processed {idx} - Answer: '{generated_ans}'")
+            #if idx % 100 == 0:
+                #print(f"Processed {idx} - Answer: '{generated_ans}'")
             token_used = (len(prompt) + len(generated_ans)) // 4
         except Exception as e:
             print(f"Error executing few-shot prompt: {e}")
@@ -74,19 +74,19 @@ async def run_few_shots():
     
     # 2. Fetch the ENTIRE dataset
     print("Fetching the COMPLETE dataset for stratified few-shot...")
-    initial_problems_pool = dataset_manager.get_entire_dataset_stratified()
+    initial_problems_pool = dataset_manager.get_entire_dataset_stratified(dataset_manager.build_prompt_clutrr_few_shots)
 
     print(f"Starting Few-Shot evaluation with {MAX_CONCURRENT_REQUESTS} concurrent workers...\n")
     
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
     
     tasks = [
-        _evaluate_single_problem(idx, problem, dataset_manager, llm_client, fitness, semaphore)
+        _evaluate_single_problem(idx, problem, llm_client, fitness, semaphore)
         for idx, problem in enumerate(initial_problems_pool)
     ]
     
     # 3. Fire tasks
-    results = await asyncio.gather(*tasks)
+    results = await tqdm.gather(*tasks, desc="Evaluating Problems")
 
     # 4. Stratified Aggregation & Word Count Tracking
     stratified_stats = {}

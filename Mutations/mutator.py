@@ -87,11 +87,11 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             # Shift the exponent so Gen 2 = 0
             decay_steps = generation - 2 
             
-            # Starts at and decays by 15% per generation
-            p_arch = max(0.25, 0.50 * (0.85 ** decay_steps))
+            # Starts and decays by 15% per generation
+            p_arch = max(0.35, 0.70 * (0.85 ** decay_steps))
             
-            # Starts at 0.60 and decays by 15% per generation
-            p_gene = max(0.25, 0.60 * (0.85 ** decay_steps))
+            # Starts and decays by 15% per generation
+            p_gene = max(0.35, 0.70 * (0.85 ** decay_steps))
 
         # --- 2. Architectural Probabilities ---
         remove_conn = min(((connections_count + 1 - node_count) / (node_count - 1)), 1.0) if node_count > 1 else 0.0 # 0 when there are only essential connections, 1 when there are double the necessary connections
@@ -405,8 +405,6 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         # 6. Check for genome consistency
         mutated_genome.remove_cycles()
 
-        
-
         return mutated_genome
 
     # --- Internal Logic ---
@@ -522,7 +520,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
 You are an expert prompt engineer. Your goal is to transform concise instructions into highly detailed, actionable, and logical procedures.
 
 For every input:
-1. Deconstruct the objective into a sequential, step-by-step process.
+1. Deconstruct the objective into a sequential, step-by-step process. If the input is aleady detaled enough, jut rephrase it.
 2. Ensure each step is a concrete action.
 3. Strictly maintain the original goal without introducing extraneous tasks.
 4. Output only the "Detailed Version" of the instruction.<end_of_turn>
@@ -542,15 +540,43 @@ Detailed Version: First, scan the context to categorize data points based on the
 Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
 Detailed Version:"""
+        
+        expand_prompt_end = f"""<start_of_turn>system
+You are an expert prompt engineer. Your goal is to transform concise instructions into highly detailed, actionable, and logical procedures.
+
+For every input:
+1. Deconstruct the objective into a sequential, step-by-step process. If the input is aleady detaled enough, jut rephrase it.
+2. Ensure each step is a concrete action.
+3. Strictly maintain the original goal without introducing extraneous tasks.
+4. Add the same old output format requirements and constraints at the end of the "Detailed Version".
+5. Output the "Detailed Version" of the instruction.
+<end_of_turn>
+<start_of_turn>user
+Original: Identify the connection between the two subjects and state it in exactly one sentence.<end_of_turn>
+<start_of_turn>model
+Detailed Version: First, identify the two target subjects. Second, analyze their shared attributes or causal links. Third, synthesize these observations to explicitly define the nature of their connection. Finally, state the connection in exactly one sentence.<end_of_turn>
+<start_of_turn>user
+Original: Think step-by-step to find the answer. Answer in a brief and structured way.<end_of_turn>
+<start_of_turn>model
+Detailed Version: First, decompose the problem into its fundamental logical components. Second, evaluate each component sequentially, ensuring every deduction is supported by the provided data. Finally, aggregate these evaluations to form the definitive answer. Answer in a brief and structured way.<end_of_turn>
+<start_of_turn>user
+Original: Filter the relevant information and reply with only the single most essential fact.<end_of_turn>
+<start_of_turn>model
+Detailed Version: First, scan the context to categorize data points based on their utility. Second, identify and discard all extraneous information that does not serve the core objective. Finally, extract and list only the essential facts required for the task. Finally, reply with only the single most essential fact.<end_of_turn>
+<start_of_turn>user
+Original: {node.instruction}<end_of_turn>
+<start_of_turn>model
+Detailed Version:"""
 
         simplify_prompt = f"""<start_of_turn>system
 You are a concise instruction editor. Your goal is to condense verbose instructions into clear, high-level commands.
 
 Follow these rules:
 1. Retain the core objective and all strict output format constraints.
-2. Remove procedural "how-to" descriptions (e.g., "First, do X, then do Y").
-3. Use a single, direct, imperative sentence.
-4. Output only the "Simplified Version".<end_of_turn>
+2. Remove non essential details and descriptions. If the instruction is already clear and concise, simply rephrase it.
+3. Rewrite the scope of the instruction using a single, concise, and clear sentence.
+4. Add the same old output format requirements and constraints at the end of the "Simplified Version".
+5. Output only the "Simplified Version" of the instruction.<end_of_turn>
 <start_of_turn>user
 Original: First, locate the two target subjects in the provided text. Second, trace any intermediary links or shared attributes between them. Finally, synthesize these links to deduce their exact connection.<end_of_turn>
 <start_of_turn>model
@@ -567,16 +593,40 @@ Simplified Version: Filter the text for only the relevant information.<end_of_tu
 Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
 Simplified Version: """
+        
+        simplify_prompt_end = f"""<start_of_turn>system
+You are a concise instruction editor. Your goal is to condense verbose instructions into clear, high-level commands.
+
+Follow these rules:
+1. Retain the core objective and all strict output format constraints.
+2. Remove non essential details and descriptions.
+3. Rewrite the scope of the instruction using a single, concise, and clear sentence. If the instruction is already clear and concise, simply rephrase it.
+4. Add the same old output format requirements and constraints at the end of the "Simplified Version".
+5. Output only the "Simplified Version" of the instruction.<end_of_turn>
+<start_of_turn>user
+Original: First, locate the two target subjects in the provided text. Second, trace any intermediary links or shared attributes between them. Finally, synthesize these links to deduce their exact connection and state it in exactly one sentence.<end_of_turn>
+<start_of_turn>model
+Simplified Version: Identify the connection between the subjects and state it in exactly one sentence.<end_of_turn>
+<start_of_turn>user
+Original: Break down the problem into individual logical components. Analyze each component sequentially, ensuring each deduction is strictly grounded in the provided facts before reaching the final conclusion. Answer in a brief and structured way.<end_of_turn>
+<start_of_turn>model
+Simplified Version: Think step-by-step to reach a logical conclusion and answer in a brief and structured way.<end_of_turn>
+<start_of_turn>user
+Original: Review the provided context and actively discard any extraneous details. Isolate only the specific facts that directly contribute to solving the core objective. Finally, reply with only the single most essential fact.<end_of_turn>
+<start_of_turn>model
+Simplified Version: Filter the text for only the relevant information and reply with only the single most essential fact.<end_of_turn>
+<start_of_turn>user
+Original: {node.instruction}<end_of_turn>
+<start_of_turn>model
+Simplified Version: """
 
         reformulate_prompt = f"""<start_of_turn>system
 Task: Stylistic Paraphrasing.
-Rewrite the instruction using completely different vocabulary and sentence structure while preserving the exact original cognitive goal. Do not add or remove logical steps.
-
-Constraint: You must strictly preserve any specific output formatting rules (e.g., "State only the one word"). Change the phrasing of the thought process, but NEVER change the final output requirement.<end_of_turn>
+Rewrite the instruction using different style / vocabulary / sentence structure while preserving the exact original cognitive goal. Do not add or remove logical steps.<end_of_turn>
 <start_of_turn>user
 Original: State only the single kinship word that describes the relationship.<end_of_turn>
 <start_of_turn>model
-Reformulated Version: What specific kinship term defines their connection? Output only that single word.<end_of_turn>
+Reformulated Version: What specific kinship term defines their connection?<end_of_turn>
 <start_of_turn>user
 Original: Think step-by-step to reach a logical conclusion.<end_of_turn>
 <start_of_turn>model
@@ -586,9 +636,34 @@ Original: Identify the connection between the subjects.<end_of_turn>
 <start_of_turn>model
 Reformulated Version: Deduce the exact relational link connecting the specified entities.<end_of_turn>
 <start_of_turn>user
-Original: Read the context carefully and extract the right answer.<end_of_turn>
+Original: Read the context carefully and extract the right answer from the provided text.<end_of_turn>
 <start_of_turn>model
 Reformulated Version: Isolate the correct answer directly from the provided text.<end_of_turn>
+<start_of_turn>user
+Original: {node.instruction}<end_of_turn>
+<start_of_turn>model
+Reformulated Version: """
+        
+        reformulate_prompt_end = f"""<start_of_turn>system
+Task: Stylistic Paraphrasing.
+Rewrite the instruction using different style / vocabulary / sentence structure while preserving the exact original cognitive goal. Do not add or remove logical steps.
+Constraint: You must strictly preserve any specific output formatting rules (e.g., "State only the one word").<end_of_turn>
+<start_of_turn>user
+Original: State only the single kinship word that describes the relationship.<end_of_turn>
+<start_of_turn>model
+Reformulated Version: What specific kinship term defines their connection? Output only that single word.<end_of_turn>
+<start_of_turn>user
+Original: Think step-by-step to reach a logical conclusion. Answer in a brief and structured way.<end_of_turn>
+<start_of_turn>model
+Reformulated Version: Systematically evaluate the information to derive a sound conclusion. Answer in a brief and structured way.<end_of_turn>
+<start_of_turn>user
+Original: Identify the connection between the subjects and state it in maximum two words.<end_of_turn>
+<start_of_turn>model
+Reformulated Version: Deduce the exact relational link connecting the specified entities and state it in maximum two words.<end_of_turn>
+<start_of_turn>user
+Original: Read the context carefully and extract the right answer from the provided text and state only the answer without any extraneous details.<end_of_turn>
+<start_of_turn>model
+Reformulated Version: Isolate the correct answer directly from the provided text and state only the answer without any extraneous details.<end_of_turn>
 <start_of_turn>user
 Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
@@ -596,9 +671,7 @@ Reformulated Version: """
 
         persona_prompt = f"""<start_of_turn>system
 Task: Persona Injection.
-Rewrite the instruction by commanding the AI to adopt a highly specific, imaginative expert persona (e.g., a master chef, a quantum physicist, an ancient historian). 
-
-Constraint: You must preserve the exact underlying goal and any strict output formatting rules. Wrap the original logic in the persona's unique vocabulary and perspective, but NEVER change the required format of the final answer.<end_of_turn>
+Rewrite the instruction by commanding the AI to adopt a highly specific, imaginative expert persona (e.g., a master chef, a quantum physicist, an ancient historian).<end_of_turn>
 <start_of_turn>user
 Original: Identify the connection between the subjects.<end_of_turn>
 <start_of_turn>model
@@ -620,11 +693,34 @@ Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
 Mutated Version: """
 
+        persona_prompt_end = f"""<start_of_turn>system
+Task: Persona Injection.
+Rewrite the instruction by commanding the AI to adopt a highly specific, imaginative expert persona (e.g., a master chef, a quantum physicist, an ancient historian). 
+Constraint: You must preserve the exact underlying goal and any strict output formatting rules. Wrap the original logic in the persona's unique vocabulary and perspective, but NEVER change the required format of the final answer.<end_of_turn>
+<start_of_turn>user
+Original: Identify the connection between the subjects and state it in maximum two words.<end_of_turn>
+<start_of_turn>model
+Mutated Version: Act as a seasoned forensic profiler. Examine the behavioral artifacts and trace the psychological threads to deduce the precise link connecting the subjects. State only the relationship in maximum two words.<end_of_turn>
+<start_of_turn>user
+Original: Think step-by-step to reach a logical conclusion and answer with a a list of the elaborated thought for each step.<end_of_turn>
+<start_of_turn>model
+Mutated Version: You are a chess grandmaster. Evaluate the board position and calculate each subsequent move sequentially to arrive at an undeniable checkmate conclusion. Answer with a list of the elaborated thought for each step.<end_of_turn>
+<start_of_turn>user
+Original: Extract only the relevant facts and report them in a structured list.<end_of_turn>
+<start_of_turn>model
+Mutated Version: Adopt the mindset of a master sculptor. Chisel away all extraneous material from the provided context and isolate only the pure, essential facts required for the objective. Report them in a structured list.<end_of_turn>
+<start_of_turn>user
+Original: State only the single kinship word that describes the relationship.<end_of_turn>
+<start_of_turn>model
+Mutated Version: As an expert genetic genealogist, sequence the ancestral data to identify the specific relational marker. State only the single kinship word that describes the relationship.<end_of_turn>
+<start_of_turn>user
+Original: {node.instruction}<end_of_turn>
+<start_of_turn>model
+Mutated Version: """
+
         reasoning_prompt = f"""<start_of_turn>system
 Task: Reasoning Injection.
-Enhance the instruction by explicitly commanding the AI to apply a distinct cognitive reasoning framework (e.g., step-by-step deduction, working backwards, falsification, or sub-problem decomposition) before generating its final answer. 
-
-Constraint: You must preserve the exact underlying goal and any strict output formatting rules. You may add instructions on *how* to think before answering, but NEVER change the required format of the final answer.<end_of_turn>
+Enhance the instruction by explicitly commanding the AI to apply a distinct cognitive reasoning framework (e.g., step-by-step deduction, working backwards, falsification, or sub-problem decomposition) before generating its final answer.<end_of_turn>
 <start_of_turn>user
 Original: Deduce the exact relational link connecting the specified entities.<end_of_turn>
 <start_of_turn>model
@@ -645,19 +741,45 @@ Mutated Version: First, divide the context into independent informational chunks
 Original: {node.instruction}<end_of_turn>
 <start_of_turn>model
 Mutated Version: """
+        
+        reasoning_prompt_end = f"""<start_of_turn>system
+Task: Reasoning Injection.
+Enhance the instruction by explicitly commanding the AI to apply a distinct cognitive reasoning framework (e.g., step-by-step deduction, working backwards, falsification, or sub-problem decomposition) before generating its final answer. 
+Constraint: You must preserve the exact underlying goal and any strict output formatting rules. You may add instructions on *how* to think before answering, but NEVER change the required format of the final answer.<end_of_turn>
+<start_of_turn>user
+Original: Deduce the exact relational link connecting the specified entities and state it in maximum two words.<end_of_turn>
+<start_of_turn>model
+Mutated Version: Deduce the exact relational link connecting the specified entities. Before providing your conclusion, map out your logical progression step-by-step to ensure absolute accuracy. State only the relationship in maximum two words.<end_of_turn>
+<start_of_turn>user
+Original: Identify the connection between the subjects and return ony the exact relationship.<end_of_turn>
+<start_of_turn>model
+Mutated Version: Identify the connection between the subjects by starting at the final target and tracing the logical dependencies backward until you reach the origin point. Return only the exact relationship.<end_of_turn>
+<start_of_turn>user
+Original: State only the single kinship word that describes the relationship.<end_of_turn>
+<start_of_turn>model
+Mutated Version: Before answering, internally review all possible relationships and explicitly rule out the logically impossible ones through falsification. State only the single kinship word that describes the true relationship.<end_of_turn>
+<start_of_turn>user
+Original: Extract only the relevant facts and return them in a list.<end_of_turn>
+<start_of_turn>model
+Mutated Version: First, divide the context into independent informational chunks. Evaluate the relevance of each chunk individually, and finally, extract only the specific facts required for the objective. Finally, return the extracted facts in a list.<end_of_turn>
+<start_of_turn>user
+Original: {node.instruction}<end_of_turn>
+<start_of_turn>model
+Mutated Version: """
 
+        is_end_node = (node_id == genome.end_node_innovation_number)
         # Select the prompt
         if style == "expand":
-            prompt = expand_prompt
+            prompt = expand_prompt if not is_end_node else expand_prompt_end
         elif style == "simplify":
-            prompt = simplify_prompt
+            prompt = simplify_prompt if not is_end_node else simplify_prompt_end
         elif style == "persona":
-            prompt = persona_prompt
+            prompt = persona_prompt if not is_end_node else persona_prompt_end
         elif style == "reasoning":
-            prompt = reasoning_prompt
+            prompt = reasoning_prompt if not is_end_node else reasoning_prompt_end
         else:
-            prompt = reformulate_prompt
-
+            prompt = reformulate_prompt if not is_end_node else reformulate_prompt_end
+        
         # CRITICAL FIX: Temperature set to 0.8 to force genetic diversity
         response: str = await self.llm.generate_text(prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
         

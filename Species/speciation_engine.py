@@ -19,7 +19,7 @@ class SpeciationEngine:
                  breeder: SpeciesBreeder,
                  target_population_size: int = 50,
                  target_species_count: int = 5, 
-                 dropoff_age: int = 4,
+                 dropoff_age: int = 10,
                  proportional_step: float = 0.035 # Lowered step size for 0-1 scale stability
                  ):
         self.breeder = breeder
@@ -41,7 +41,7 @@ class SpeciationEngine:
         """
         # --- 1. THE THERMOSTAT (Dynamic Thresholding) ---
         # Assuming you updated this to pass generation or removed the arg as discussed
-        self._adjust_compatibility_threshold()
+        self._adjust_compatibility_threshold(generation=generation)
 
         # --- 2. STAGNATION CULLING WITH EXTINCTION FAILSAFE ---
         mature_active = []
@@ -74,7 +74,7 @@ class SpeciationEngine:
         # --- 3. GLOBAL ELITISM ---
         # Only pull members from ALIVE species
         all_global_members = [member for s in self.species_list if s.alive for member in s.members]
-        all_global_members.sort(key=lambda x: x.fitness, reverse=True)
+        all_global_members.sort(key=lambda x: (x.accuracy, x.fitness), reverse=True)
         
         global_elites = all_global_members[:3]
         num_elites = len(global_elites)
@@ -163,7 +163,7 @@ class SpeciationEngine:
                 s.alive = False
 
     def _adjust_compatibility_threshold(self, generation: int = 2):
-        if generation > 1:
+        if generation > 4:
             mature_species_count = len([s for s in self.species_list  if len(s.members) > 0 and s.alive])
             
             error = mature_species_count - self.target_species_count
@@ -229,8 +229,8 @@ class SpeciationEngine:
                 granted = 0
                 
             # YOUTH PROTECTION: Guarantee 1 slot if young and if it is not made by casual outsiders (and slots are still available)
-            if granted == 0 and s.age < self.dropoff_age and len(s.members) > 2:
-                granted = 1
+            # if granted == 0 and s.age < self.dropoff_age and len(s.members) > 2:
+            #     granted = 1
                 
             # Hard Cap: ensure we don't accidentally allocate more than we have left
             granted = min(granted, remaining_target)

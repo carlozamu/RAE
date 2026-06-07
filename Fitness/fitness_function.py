@@ -9,7 +9,7 @@ class UnifiedFitnessCalculator:
     def __init__(self,
                  llm: LLM,
                  accuracy_score=1.0,         
-                 max_penalty=0.25): 
+                 max_penalty=0.15): 
         self.acc_score = accuracy_score
         self.max_penalty = max_penalty
         self.llm = llm
@@ -49,7 +49,7 @@ class UnifiedFitnessCalculator:
             
         print(f"   📊 Dynamic Token Baseline Shifted -> Mean: {self.target_mean:.1f} | Std: {self.target_std:.1f}")
 
-    def compute_score(self, is_correct: bool, token_count: int) -> float:
+    def compute_score(self, is_correct: bool, token_count: int, answer_length: int) -> float:
         """
         Calculates the raw evolutionary score for a SINGLE problem.
         Higher score is better.
@@ -65,9 +65,13 @@ class UnifiedFitnessCalculator:
             token_penalty = 0.0
         elif token_count >= upper_bound:
             token_penalty = self.max_penalty
+        elif token_count > 1500:
+            token_penalty = 0.8
         else:
             # Scale proportionally between 0.0 and max_penalty
             token_penalty = self.max_penalty * ((token_count - lower_bound) / (upper_bound - lower_bound))
+        
+        answer_length_penalty = 0.05 * max(0, 5 - answer_length)  # Penalize excessively long answers
 
         # Total final score for this problem (ensuring it never goes negative here)
-        return max(0.0, (ans_points - token_penalty))
+        return max(0.0, (ans_points - token_penalty - answer_length_penalty))
