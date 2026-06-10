@@ -14,7 +14,7 @@ class Trait:
         """
         Executes and returns (in_tokens, out_tokens, duration, answer).
         """        
-        max_tokens = 128 if not is_last else 10
+        max_tokens = 128 if not is_last else 5
         start_t = time.time()
         answer = await self.llm.generate_text(user_prompt=context, temperature=0.0, max_tokens=max_tokens)
         duration = time.time() - start_t

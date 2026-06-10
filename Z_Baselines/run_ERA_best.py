@@ -60,7 +60,8 @@ async def _evaluate_single_problem(individual:Phenotype, problem:Dict, execution
 
         score = fitness.calculator.compute_score(
             is_correct=is_correct,
-            token_count=token_used
+            token_count=token_used,
+            answer_length=answer_length
         )
         
         return is_correct, score, answer_length
@@ -82,67 +83,49 @@ async def run_baseline():
     
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-    node_77 = PromptNode(
-        name="Node 77", 
-        instruction="Restrict the investigation to the elements explicitly mentioned, avoiding tangential explorations.",
-        innovation_number=77
+    node_0 = PromptNode(
+        name="Node 0", 
+        instruction="Analyze the chosen kinship term to categorize its relationship type.",
+        innovation_number=0
     )
-    node_127 = PromptNode(
-        name="Node 127", 
-        instruction="Assume you are a data analyst specializing in predictive modeling. Focus solely on identifying the data points - numerical, textual, or otherwise - that demonstrably shift the core concept's trajectory, and present only that information in a concise, statistically-driven format.",
-        innovation_number=127
+    node_10 = PromptNode(
+        name="Node 10", 
+        instruction="Carefully review the text for any explicit statements about familial relationships. Identify the individuals involved and their connections. Then, synthesize these relationships into a concise and clear description, avoiding any ambiguity.",
+        innovation_number=10
     )
-    node_92 = PromptNode(
-        name="Node 92", 
-        instruction="Recognize the central claim or point being made within the text.",
-        innovation_number=92
-    )
-    node_84 = PromptNode(
-        name="Node 84", 
-        instruction="Craft a single, declarative sentence that summarizes the argument.",
-        innovation_number=84
+    node_24 = PromptNode(
+        name="Node 24", 
+        instruction="Begin by defining familial relationships. Second, formulate a single-sentence statement accurately reflecting the core characteristic of the familial link. Finally, present the definition concisely.",
+        innovation_number=24
     )
 
     nodes_dict = {
-        77: node_77,
-        127: node_127,
-        92: node_92,
-        84: node_84
+        77: node_0,
+        127: node_10,
+        92: node_24
     }
 
     connection_1 = Connection(
-        input_node_in=node_77.innovation_number, 
-        output_node_in=node_127.innovation_number, 
+        input_node_in=node_0.innovation_number, 
+        output_node_in=node_10.innovation_number, 
         enabled=True
     )
     connection_2 = Connection(
-        input_node_in=node_77.innovation_number, 
-        output_node_in=node_92.innovation_number, 
-        enabled=True
-    )
-    connection_3 = Connection(
-        input_node_in=node_127.innovation_number, 
-        output_node_in=node_92.innovation_number, 
-        enabled=True
-    )
-    connection_4 = Connection(
-        input_node_in=node_92.innovation_number, 
-        output_node_in=node_84.innovation_number, 
+        input_node_in=node_10.innovation_number, 
+        output_node_in=node_24.innovation_number, 
         enabled=True
     )
 
     connection_dict = {
         connection_1.innovation_number: connection_1,
-        connection_2.innovation_number: connection_2,
-        connection_3.innovation_number: connection_3,
-        connection_4.innovation_number: connection_4
+        connection_2.innovation_number: connection_2
     }
 
     winner_genome = AgentGenome(
         nodes_dict=nodes_dict,
         connections_dict=connection_dict,
-        start_node_innovation_number=77,
-        end_node_innovation_number=84
+        start_node_innovation_number=0,
+        end_node_innovation_number=24
     )
 
     phenotype = Phenotype(

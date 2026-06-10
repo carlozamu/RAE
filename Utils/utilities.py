@@ -1,11 +1,10 @@
 import gc
 import os
-import random
-from typing import List, Dict, Any, Set, Tuple, Union
+from typing import List, Dict, Any, Set, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import matplotlib.font_manager as fm
+import colorsys
 
 from Species.species import Species
 
@@ -104,26 +103,37 @@ class Plotter:
     def __init__(self):
         self.species_colors_registry = {}
         
-        # Professional, colorblind-friendly distinct palette
+        # Extended, highly distinct palette (colorblind-friendly, 30 colors)
         self.base_palette = [
             '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
-            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+            '#393b79', '#843c39', '#7b4173', '#5254a3', '#bd9e39',
+            '#ad494a', '#a55194', '#6baed6', '#fd8d3c', '#74c476',
+            '#f4a582', '#fb9a99', '#fdbf6f', '#cab2d6', '#b15928',
+            '#e31a1c', '#ff7f00', '#6a3d9a', '#ffff99', '#b8e186'
         ]
         
         # High-contrast baseline colors
-        self.few_shot_baseline_color = "#AC9201"  # Vibrant Gold for Few-Shot
-        self.zero_shot_baseline_color = "#000000" # Pure Black for Zero-Shot
+        self.few_shot_baseline_color = "#AC9201"  # Kept for compatibility
+        self.zero_shot_baseline_color = "#000000" # Pure Black
         self.palette_index = 0
+        self.marker_size = 100  # Unified size for all scatter markers
 
     def _get_species_color(self, species_id: str) -> str:
-        """Retrieves or assigns a consistent, distinct color for a given species ID."""
+        """Retrieves or assigns a maximally distinct color for a given species ID."""
         if species_id not in self.species_colors_registry:
             if self.palette_index < len(self.base_palette):
-                self.species_colors_registry[species_id] = self.base_palette[self.palette_index]
-                self.palette_index += 1
+                color = self.base_palette[self.palette_index]
             else:
-                r, g, b = random.randint(30, 200), random.randint(30, 200), random.randint(30, 200)
-                self.species_colors_registry[species_id] = f'#{r:02x}{g:02x}{b:02x}'
+                # Golden-ratio conjugate stepping on the hue wheel guarantees
+                # the largest possible angular distance from every previous color.
+                hue = (self.palette_index * 0.618033988749895) % 1.0
+                # High saturation + medium lightness avoids browns and muddy tones
+                r, g, b = colorsys.hls_to_rgb(hue, 0.55, 0.9)
+                color = f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}'
+            
+            self.species_colors_registry[species_id] = color
+            self.palette_index += 1
         
         return self.species_colors_registry[species_id]
 
@@ -132,7 +142,7 @@ class Plotter:
         return float(baseline_data.get("accuracy", 0.0)), float(baseline_data.get("avg_tokens", 0.0))
 
     def _parse_baseline_F(self, baseline_data: dict) -> float:
-        """Safely extracts (fitness, avg_tokens) whether passed as a tuple or dict."""
+        """Safely extracts fitness whether passed as a tuple or dict."""
         return float(baseline_data.get("fitness", 0.0))
 
     def plot_accuracy_vs_tokens(
@@ -145,7 +155,7 @@ class Plotter:
     ) -> str:
         """
         Plots Accuracy (Y-axis) vs Token Usage (X-axis).
-        Includes baseline comparisons plotted as prominent stars.
+        Includes baseline comparisons plotted as prominent shapes.
         """
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -156,7 +166,7 @@ class Plotter:
 
         xs, ys, colors = [], [], []
 
-        # 2. Extract Data from Genomes
+        # 2. Extract Data from Genomes (ALIVE species only)
         for species in generation_data:
             if species.alive:
                 species_color = self._get_species_color(str(species.id))
@@ -180,22 +190,22 @@ class Plotter:
         ax.spines['left'].set_color('#333333')
         ax.spines['bottom'].set_color('#333333')
 
-        # 4. Plot Baselines (Giant Stars so they cannot be missed)
+        # 4. Plot Baselines (same size as population dots)
         plt.scatter(
             [zs_tokens], [zs_acc], 
-            color=self.zero_shot_baseline_color, marker='*', s=450, 
+            color=self.zero_shot_baseline_color, marker='s', s=self.marker_size, 
             edgecolors='white', linewidth=1.5, zorder=4
         )
         plt.scatter(
             [fs_tokens], [fs_acc], 
-            color=self.few_shot_baseline_color, marker='*', s=450, 
+            color=self.zero_shot_baseline_color, marker='^', s=self.marker_size, 
             edgecolors='black', linewidth=1.0, zorder=3
         )
 
         # 5. Plot Population Scatter
         if xs:
             plt.scatter(
-                xs, ys, c=colors, alpha=0.75, 
+                xs, ys, c=colors, alpha=0.75, s=self.marker_size,
                 edgecolors='white', linewidth=1.0, zorder=5
             )
 
@@ -204,36 +214,44 @@ class Plotter:
                   fontsize=16, fontweight='bold', color='#1A1A1A', pad=20)
         
         plt.xlabel("Average Token Usage (Lower is Better)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
-        plt.ylabel("Accuracy Score (0 - 100)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
+        plt.ylabel("Accuracy Score (0 - 30)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
 
-        # Define axis limits & ticks
-        plt.ylim(-5, 105)
-        plt.yticks([5, 10, 15, 20, 25, 50, 75, 100])
+        # 7. Axis limits & ticks — 0 to 30, step 5
+        plt.ylim(0, 30)
+        plt.yticks(np.arange(0, 31, 5))
         
         plt.xlim(90, 1010)
-        plt.xticks(np.arange(100, 1550, 100)) # 100 to 1000 in steps of 100
+        plt.xticks(np.arange(100, 1550, 100))
 
-        # 7. Professional Legend Construction
+        # 8. Professional Legend Construction
         legend_handles = []
+        alive_flags = []
         
-        # Add Baselines to legend first
-        legend_handles.append(plt.Line2D([0], [0], marker='*', color='w', label="Zero-Shot Baseline", 
-                                       markerfacecolor=self.zero_shot_baseline_color, markersize=16, 
+        # Baselines
+        legend_handles.append(plt.Line2D([0], [0], marker='s', color='w', label="Zero-Shot Baseline", 
+                                       markerfacecolor=self.zero_shot_baseline_color, markersize=10, 
                                        markeredgecolor='white'))
-        legend_handles.append(plt.Line2D([0], [0], marker='*', color='w', label="Few-Shot Baseline", 
-                                       markerfacecolor=self.few_shot_baseline_color, markersize=16, 
+        alive_flags.append(True)
+        legend_handles.append(plt.Line2D([0], [0], marker='^', color='w', label="Few-Shot Baseline", 
+                                       markerfacecolor=self.zero_shot_baseline_color, markersize=10, 
                                        markeredgecolor='black'))
+        alive_flags.append(True)
 
-        # Add Active Species
-        active_species_ids = sorted([str(s.id) for s in generation_data])
-        for s_key in active_species_ids:
+        # All Species — alive = solid, dead = semi-transparent
+        sorted_species = sorted(generation_data, key=lambda s: str(s.id))
+        for species in sorted_species:
+            s_key = str(species.id)
+            color = self._get_species_color(s_key)
+            alpha = 0.8 if species.alive else 0.3
+            
             display_label = f"Species {s_key[:6]}" if len(s_key) > 6 else f"Species {s_key}"
             patch = plt.Line2D([0], [0], marker='o', color='w', label=display_label, 
-                               markerfacecolor=self.species_colors_registry[s_key], markersize=10, 
-                               markeredgecolor='white', alpha=0.8)
+                               markerfacecolor=color, markersize=10, 
+                               markeredgecolor='white', alpha=alpha)
             legend_handles.append(patch)
+            alive_flags.append(species.alive)
         
-        # Render Legend cleanly outside the main canvas
+        # Render Legend
         if legend_handles:
             legend = plt.legend(
                 handles=legend_handles, title="Ecology Types", 
@@ -241,10 +259,15 @@ class Plotter:
                 edgecolor='#E0E0E0', facecolor='white', fancybox=True
             )
             legend.get_title().set_fontweight('bold')
+            
+            # Fade legend text for dead species
+            for i, text in enumerate(legend.get_texts()):
+                if not alive_flags[i]:
+                    text.set_alpha(0.4)
         
         plt.tight_layout()
 
-        # 8. Save Crisp High-Res Output
+        # 9. Save Crisp High-Res Output
         filename = f"{output_dir}/gen_{generation_idx}_accuracy_vs_tokens.png"
         plt.savefig(filename, dpi=300, bbox_inches='tight')
         plt.close()
@@ -253,7 +276,7 @@ class Plotter:
      
     def plot_fitness_vs_complexity(
         self, 
-        generation_data: list[Species], 
+        generation_data: List, 
         zero_shot_stats: dict, 
         few_shots_stats: dict, 
         generation_idx: int, 
@@ -261,20 +284,20 @@ class Plotter:
     ) -> str:
         """
         Plots Fitness (Y-axis) vs Complexity (X-axis).
-        Includes baseline comparisons plotted as prominent stars.
+        Includes baseline comparisons plotted as prominent shapes.
         """
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
         # 1. Parse Baselines
-        zs_fitness  = self._parse_baseline_F(zero_shot_stats)
+        zs_fitness = self._parse_baseline_F(zero_shot_stats)
         fs_fitness = self._parse_baseline_F(few_shots_stats)
         zs_complexity = 1
         fs_complexity = 4
 
         xs, ys, colors = [], [], []
 
-        # 2. Extract Data from Genomes
+        # 2. Extract Data from Genomes (ALIVE species only)
         for species in generation_data:
             if species.alive:
                 species_color = self._get_species_color(str(species.id))
@@ -285,6 +308,7 @@ class Plotter:
                     xs.append(complexity)
                     ys.append(fitness)
                     colors.append(species_color)
+                    
         # 3. Setup Beautiful Plot Aesthetics
         plt.figure(figsize=(11, 7), facecolor='#FAFAFA')
         ax = plt.gca()
@@ -297,22 +321,22 @@ class Plotter:
         ax.spines['left'].set_color('#333333')
         ax.spines['bottom'].set_color('#333333')
 
-        # 4. Plot Baselines (Giant Stars so they cannot be missed)
+        # 4. Plot Baselines (same size as population dots)
         plt.scatter(
             [zs_complexity], [zs_fitness], 
-            color=self.zero_shot_baseline_color, marker='*', s=450, 
+            color=self.zero_shot_baseline_color, marker='s', s=self.marker_size*1.5, 
             edgecolors='white', linewidth=1.5, zorder=4
         )
         plt.scatter(
             [fs_complexity], [fs_fitness], 
-            color=self.few_shot_baseline_color, marker='*', s=450, 
+            color=self.zero_shot_baseline_color, marker='^', s=self.marker_size*1.5, 
             edgecolors='black', linewidth=1.0, zorder=3 
         )
 
         # 5. Plot Population Scatter
         if xs:
             plt.scatter(
-                xs, ys, c=colors, alpha=0.75, 
+                xs, ys, c=colors, alpha=0.75, s=self.marker_size,
                 edgecolors='white', linewidth=1.0, zorder=5
             )
 
@@ -321,36 +345,44 @@ class Plotter:
                   fontsize=16, fontweight='bold', color='#1A1A1A', pad=20)
         
         plt.xlabel("Complexity (nodes count)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
-        plt.ylabel("Fitness Score (0 - 100)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
+        plt.ylabel("Fitness Score (0 - 30)", fontsize=12, fontweight='medium', color='#333333', labelpad=10)
 
-        # Define axis limits & ticks
-        plt.ylim(-5, 105)
-        plt.yticks([5, 10, 15, 20, 25, 50, 75, 100])
+        # 7. Axis limits & ticks — 0 to 30, step 5
+        plt.ylim(0, 30)
+        plt.yticks(np.arange(0, 31, 5))
         
         plt.xlim(0.5, 8)
-        plt.xticks(np.arange(1, 9, 1)) # Steps of 1 from 1 to 8
+        plt.xticks(np.arange(1, 9, 1))
 
-        # 7. Professional Legend Construction
+        # 8. Professional Legend Construction
         legend_handles = []
+        alive_flags = []
         
-        # Add Baselines to legend first
-        legend_handles.append(plt.Line2D([0], [0], marker='*', color='w', label="Zero-Shot Baseline", 
-                                       markerfacecolor=self.zero_shot_baseline_color, markersize=16, 
+        # Baselines
+        legend_handles.append(plt.Line2D([0], [0], marker='s', color='w', label="Zero-Shot Baseline", 
+                                       markerfacecolor=self.zero_shot_baseline_color, markersize=10, 
                                        markeredgecolor='white'))
-        legend_handles.append(plt.Line2D([0], [0], marker='*', color='w', label="Few-Shot Baseline", 
-                                       markerfacecolor=self.few_shot_baseline_color, markersize=16, 
+        alive_flags.append(True)
+        legend_handles.append(plt.Line2D([0], [0], marker='^', color='w', label="Few-Shot Baseline", 
+                                       markerfacecolor=self.zero_shot_baseline_color, markersize=10, 
                                        markeredgecolor='black'))
+        alive_flags.append(True)
 
-        # Add Active Species
-        active_species_ids = sorted([str(s.id) for s in generation_data])
-        for s_key in active_species_ids:
+        # All Species — alive = solid, dead = semi-transparent
+        sorted_species = sorted(generation_data, key=lambda s: str(s.id))
+        for species in sorted_species:
+            s_key = str(species.id)
+            color = self._get_species_color(s_key)
+            alpha = 0.8 if species.alive else 0.3
+            
             display_label = f"Species {s_key[:6]}" if len(s_key) > 6 else f"Species {s_key}"
             patch = plt.Line2D([0], [0], marker='o', color='w', label=display_label, 
-                               markerfacecolor=self.species_colors_registry[s_key], markersize=10, 
-                               markeredgecolor='white', alpha=0.8)
+                               markerfacecolor=color, markersize=10, 
+                               markeredgecolor='white', alpha=alpha)
             legend_handles.append(patch)
+            alive_flags.append(species.alive)
         
-        # Render Legend cleanly outside the main canvas
+        # Render Legend
         if legend_handles:
             legend = plt.legend(
                 handles=legend_handles, title="Ecology Types", 
@@ -358,16 +390,195 @@ class Plotter:
                 edgecolor='#E0E0E0', facecolor='white', fancybox=True
             )
             legend.get_title().set_fontweight('bold')
+            
+            # Fade legend text for dead species
+            for i, text in enumerate(legend.get_texts()):
+                if not alive_flags[i]:
+                    text.set_alpha(0.4)
         
         plt.tight_layout()
 
-        # 8. Save Crisp High-Res Output
+        # 9. Save Crisp High-Res Output
         filename = f"{output_dir}/gen_{generation_idx}_fitness_vs_complexity.png"
         plt.savefig(filename, dpi=300, bbox_inches='tight')
         plt.close()
         
+        return filename    
+
+    def plot_accuracy_by_species(
+        self,
+        generation_data: list,
+        zero_shot_stats: dict,
+        few_shots_stats: dict,
+        generation_idx: int,
+        output_dir="Utils/Logs/PlotsAS"
+    ) -> str:
+        """
+        Per-species accuracy distribution on an equidistant categorical x-axis.
+        Alive species render as floating bars (height ∝ variance, centred on median)
+        with whiskers to min/max. Dead species render as a single diamond at
+        their representative accuracy. Baselines occupy the first two slots.
+        """
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # --- 1. Parse baselines -------------------------------------------------
+        zs_acc, _ = self._parse_baseline(zero_shot_stats)
+        fs_acc, _ = self._parse_baseline(few_shots_stats)
+
+        # --- 2. Sort species & build x-axis ---------------------------------------
+        sorted_species = sorted(generation_data, key=lambda s: str(s.id))
+        n_species = len(sorted_species)
+
+        # 0 = ZS, 1 = FS, 2+ = species 0, 1, 2 …
+        x_positions = list(range(n_species + 2))
+
+        # Dynamic width so bars never crowd
+        fig_w = max(9, n_species * 0.85 + 3)
+        plt.figure(figsize=(fig_w, 7), facecolor='#FAFAFA')
+        ax = plt.gca()
+        ax.set_facecolor('#FAFAFA')
+
+        ax.grid(True, linestyle='--', color='#E0E0E0', alpha=0.8, zorder=0)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#333333')
+        ax.spines['bottom'].set_color('#333333')
+
+        # --- 3. Plot baselines ----------------------------------------------------
+        plt.scatter(
+            [0], [zs_acc],
+            color=self.zero_shot_baseline_color, marker='s', s=self.marker_size,
+            edgecolors='white', linewidth=1.5, zorder=4
+        )
+        plt.scatter(
+            [1], [fs_acc],
+            color=self.zero_shot_baseline_color, marker='^', s=self.marker_size,
+            edgecolors='black', linewidth=1.0, zorder=3
+        )
+
+        # --- 4. Plot species floating bars / dead diamonds ------------------------
+        for i, species in enumerate(sorted_species):
+            x = i + 2
+            color = self._get_species_color(str(species.id))
+
+            if species.alive and getattr(species, 'members', None):
+                accs = [float(m.accuracy) for m in species.members]
+                if not accs:
+                    continue
+
+                median = float(np.median(accs))
+                variance = float(np.var(accs))
+                min_v  = float(np.min(accs))
+                max_v  = float(np.max(accs))
+
+                # Height proportional to variance (tuned so it fits inside 0-30)
+                bar_h = min(variance * 0.6, 18.0)
+
+                if bar_h < 0.3 or len(accs) == 1:
+                    # Collapses to a point – render as diamond
+                    plt.scatter(
+                        [x], [median], marker='D', c=color, s=80,
+                        edgecolors='white', linewidth=1.0, alpha=0.9, zorder=5
+                    )
+                else:
+                    bottom = median - bar_h / 2.0
+
+                    # Chunky floating bar
+                    plt.bar(
+                        x, bar_h, bottom=bottom, width=0.5,
+                        color=color, edgecolor='white', linewidth=1.0,
+                        alpha=0.85, zorder=4
+                    )
+
+                    # Vertical whiskers
+                    plt.plot([x, x], [bottom, min_v],
+                            color=color, linewidth=1.2, alpha=0.85, zorder=3)
+                    plt.plot([x, x], [max_v, bottom + bar_h],
+                            color=color, linewidth=1.2, alpha=0.85, zorder=3)
+
+                    # Short horizontal caps at extremes
+                    cap = 0.2
+                    plt.plot([x - cap, x + cap], [min_v, min_v],
+                            color=color, linewidth=1.5, alpha=0.85, zorder=3)
+                    plt.plot([x - cap, x + cap], [max_v, max_v],
+                            color=color, linewidth=1.5, alpha=0.85, zorder=3)
+            else:
+                # Dead species – single representative value
+                rep_acc = 0.0
+                if hasattr(species, 'representative') and species.representative is not None:
+                    rep_acc = float(species.representative.accuracy)
+
+                plt.scatter(
+                    [x], [rep_acc], marker='D', c=color, s=80,
+                    edgecolors='white', linewidth=1.0, alpha=0.45, zorder=5
+                )
+
+        # --- 5. X-axis labels (fade dead species) --------------------------------
+        tick_labels = ['ZS', 'FS'] + [str(i) for i in range(n_species)]
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(tick_labels, fontsize=10, color='#333333')
+
+        for i, label in enumerate(ax.get_xticklabels()):
+            if i >= 2 and not sorted_species[i - 2].alive:
+                label.set_alpha(0.35)
+
+        # --- 6. Y-axis (accuracy 0-30, step 5) -----------------------------------
+        plt.ylim(0, 30)
+        plt.yticks(np.arange(0, 31, 5))
+        plt.ylabel("Accuracy Score (0 - 30)", fontsize=12,
+                fontweight='medium', color='#333333', labelpad=10)
+        plt.xlabel("Species Index", fontsize=12,
+                fontweight='medium', color='#333333', labelpad=10)
+        plt.title(f"Generation {generation_idx}: Accuracy Distribution by Species",
+                fontsize=16, fontweight='bold', color='#1A1A1A', pad=20)
+
+        # --- 7. Legend (same structure, dead = semi-transparent) -----------------
+        legend_handles = []
+        alive_flags = []
+
+        legend_handles.append(plt.Line2D(
+            [0], [0], marker='s', color='w', label="Zero-Shot Baseline",
+            markerfacecolor=self.zero_shot_baseline_color, markersize=10,
+            markeredgecolor='white'))
+        alive_flags.append(True)
+
+        legend_handles.append(plt.Line2D(
+            [0], [0], marker='^', color='w', label="Few-Shot Baseline",
+            markerfacecolor=self.zero_shot_baseline_color, markersize=10,
+            markeredgecolor='black'))
+        alive_flags.append(True)
+
+        for species in sorted_species:
+            s_key = str(species.id)
+            color = self._get_species_color(s_key)
+            alpha = 0.8 if species.alive else 0.3
+
+            lbl = f"Species {s_key[:6]}" if len(s_key) > 6 else f"Species {s_key}"
+            patch = plt.Line2D(
+                [0], [0], marker='o', color='w', label=lbl,
+                markerfacecolor=color, markersize=10,
+                markeredgecolor='white', alpha=alpha)
+            legend_handles.append(patch)
+            alive_flags.append(species.alive)
+
+        if legend_handles:
+            legend = plt.legend(
+                handles=legend_handles, title="Ecology Types",
+                bbox_to_anchor=(1.02, 1), loc='upper left', frameon=True,
+                edgecolor='#E0E0E0', facecolor='white', fancybox=True
+            )
+            legend.get_title().set_fontweight('bold')
+            for i, text in enumerate(legend.get_texts()):
+                if not alive_flags[i]:
+                    text.set_alpha(0.4)
+
+        plt.tight_layout()
+        filename = f"{output_dir}/gen_{generation_idx}_accuracy_by_species.png"
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.close()
+
         return filename
-     
 
 # --- 3. History Utility ---
 class HistoryTracker:
@@ -388,6 +599,16 @@ class HistoryTracker:
 def log_and_print(message: str, log_file: str = "Utils/Logs/generation_logger.md"):
     print(message)
     
+    # Ensure the logs directory exists
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    
+    # Append the message to the markdown file
+    with open(log_file, "a", encoding="utf-8") as f:
+        # We strip leading newlines to avoid weird markdown formatting gaps, 
+        # but keep the newline at the end for the next log.
+        f.write(message.lstrip('\n') + "\n\n")
+
+def just_log(message: str, log_file: str = "few_shots_results_0.txt"):    
     # Ensure the logs directory exists
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
     
@@ -431,10 +652,11 @@ def log_generation_to_markdown(species_list: List[Species],
     global_best_fitness = 0.0
     global_champion = None
     total_active_species = len(species_list)
+    alive_species = [s for s in species_list if s.alive]
     
     # Pre-calculate ecology stats to find the global champion
     ecology_data = []
-    for species in species_list:
+    for species in alive_species:
         if not species.members:
             continue
             
@@ -465,7 +687,7 @@ def log_generation_to_markdown(species_list: List[Species],
     
     # --- Header ---
     md_lines.append(f"# 🧬 Generation {generation_idx} Report")
-    md_lines.append(f"**Active Species:** {total_active_species} | **Global Best Fitness:** {global_best_fitness:.4f}")
+    md_lines.append(f"**Active Species:** {len(alive_species)} | **Global Best Fitness:** {global_best_fitness:.4f}")
     md_lines.append("\n---\n")
     
     # --- Global Performance Table ---

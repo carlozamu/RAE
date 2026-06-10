@@ -73,7 +73,7 @@ class Phenotype:
             trait = Trait(node, self.llm)
             # Fix: renamed 'time' to 'duration' to avoid shadowing module
             last = False
-            if node.id == self.genome.end_node_innovation_number:
+            if node.innovation_number == self.genome.end_node_innovation_number:
                 last= True
             in_t, out_t, duration, answer = await trait.execute(full_context, last)
             last = False

@@ -1,6 +1,5 @@
 import numpy as np
 import random
-import math
 from typing import List
 from Genome.agent_genome import AgentGenome
 
@@ -40,7 +39,7 @@ class Species:
 
     def update_stagnation(self):
         """Tracks if the species has stopped improving."""
-        if not self.members:
+        if not self.members or not self.alive:
             return
             
         current_max = max(m.fitness for m in self.members)

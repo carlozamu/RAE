@@ -37,7 +37,7 @@ class UnifiedFitnessCalculator:
         upper_bound_filter = q3 + 1.5 * iqr
         
         # Keep only "normal" token usages
-        filtered = arr[(arr >= lower_bound_filter) & (arr <= upper_bound_filter)]
+        filtered = arr[(arr >= lower_bound_filter) & (arr <= upper_bound_filter) & (arr <= 1500)]
         
         # 2. Update Mean and Std Dev (fallback to raw array if filtering stripped everything)
         if len(filtered) > 0:
@@ -71,7 +71,7 @@ class UnifiedFitnessCalculator:
             # Scale proportionally between 0.0 and max_penalty
             token_penalty = self.max_penalty * ((token_count - lower_bound) / (upper_bound - lower_bound))
         
-        answer_length_penalty = 0.05 * max(0, 5 - answer_length)  # Penalize excessively long answers
+        answer_length_penalty = min(0.2, 0.05 * answer_length)  # Penalize excessively long answers
 
         # Total final score for this problem (ensuring it never goes negative here)
         return max(0.0, (ans_points - token_penalty - answer_length_penalty))

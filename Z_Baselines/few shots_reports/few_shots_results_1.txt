@@ -1,0 +1,490 @@
+Fetching the COMPLETE dataset for stratified few-shot with examples min_complexity
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 110.87 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 22.62% (1154/5101)
+
+Level 03 Hops: Accuracy 20.60% (1051/5103)
+
+Level 04 Hops: Accuracy 17.45% (890/5101)
+
+Level 05 Hops: Accuracy 15.14% (28/185)
+
+Level 06 Hops: Accuracy 13.33% (14/105)
+
+Level 07 Hops: Accuracy 09.03% (14/155)
+
+Level 08 Hops: Accuracy 11.11% (15/135)
+
+Level 09 Hops: Accuracy 08.06% (10/124)
+
+Level 10 Hops: Accuracy 04.10% (5/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 19.72%
+
+Overall Average Fitness:  0.1578
+
+--------------------------------------------------
+
+Average Answer Length:    1.00 words
+
+Exactly 1-Word Answers:   16131 (100.0%)
+
+Exactly 2-Word Answers:   0 (0.0%)
+
+==================================================
+
+
+
+Fetching the COMPLETE dataset for stratified few-shot with examples max_extrapolation
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 183.17 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 23.47% (1197/5101)
+
+Level 03 Hops: Accuracy 21.36% (1090/5103)
+
+Level 04 Hops: Accuracy 18.66% (952/5101)
+
+Level 05 Hops: Accuracy 15.68% (29/185)
+
+Level 06 Hops: Accuracy 17.14% (18/105)
+
+Level 07 Hops: Accuracy 10.32% (16/155)
+
+Level 08 Hops: Accuracy 11.85% (16/135)
+
+Level 09 Hops: Accuracy 12.90% (16/124)
+
+Level 10 Hops: Accuracy 14.75% (18/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 20.78%
+
+Overall Average Fitness:  0.1662
+
+--------------------------------------------------
+
+Average Answer Length:    1.00 words
+
+Exactly 1-Word Answers:   16117 (99.9%)
+
+Exactly 2-Word Answers:   0 (0.0%)
+
+==================================================
+
+
+
+Fetching the COMPLETE dataset for stratified few-shot with examples uniform_median
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 149.59 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 23.92% (1220/5101)
+
+Level 03 Hops: Accuracy 20.18% (1030/5103)
+
+Level 04 Hops: Accuracy 19.15% (977/5101)
+
+Level 05 Hops: Accuracy 16.76% (31/185)
+
+Level 06 Hops: Accuracy 26.67% (28/105)
+
+Level 07 Hops: Accuracy 17.42% (27/155)
+
+Level 08 Hops: Accuracy 16.30% (22/135)
+
+Level 09 Hops: Accuracy 21.77% (27/124)
+
+Level 10 Hops: Accuracy 20.49% (25/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 21.00%
+
+Overall Average Fitness:  0.1680
+
+--------------------------------------------------
+
+Average Answer Length:    1.00 words
+
+Exactly 1-Word Answers:   16131 (100.0%)
+
+Exactly 2-Word Answers:   0 (0.0%)
+
+==================================================
+
+
+
+Fetching the COMPLETE dataset for stratified few-shot with examples bounding_box
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 145.77 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 27.99% (1428/5101)
+
+Level 03 Hops: Accuracy 22.48% (1147/5103)
+
+Level 04 Hops: Accuracy 19.78% (1009/5101)
+
+Level 05 Hops: Accuracy 17.30% (32/185)
+
+Level 06 Hops: Accuracy 17.14% (18/105)
+
+Level 07 Hops: Accuracy 10.32% (16/155)
+
+Level 08 Hops: Accuracy 14.81% (20/135)
+
+Level 09 Hops: Accuracy 10.48% (13/124)
+
+Level 10 Hops: Accuracy 13.93% (17/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 22.94%
+
+Overall Average Fitness:  0.1835
+
+--------------------------------------------------
+
+Average Answer Length:    1.00 words
+
+Exactly 1-Word Answers:   16129 (100.0%)
+
+Exactly 2-Word Answers:   0 (0.0%)
+
+==================================================
+
+
+
+Fetching the COMPLETE dataset for stratified few-shot with examples inverted_recency
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 143.32 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 26.86% (1370/5101)
+
+Level 03 Hops: Accuracy 21.40% (1092/5103)
+
+Level 04 Hops: Accuracy 19.41% (990/5101)
+
+Level 05 Hops: Accuracy 17.84% (33/185)
+
+Level 06 Hops: Accuracy 13.33% (14/105)
+
+Level 07 Hops: Accuracy 09.68% (15/155)
+
+Level 08 Hops: Accuracy 14.81% (20/135)
+
+Level 09 Hops: Accuracy 10.48% (13/124)
+
+Level 10 Hops: Accuracy 07.38% (9/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 22.04%
+
+Overall Average Fitness:  0.1764
+
+--------------------------------------------------
+
+Average Answer Length:    1.01 words
+
+Exactly 1-Word Answers:   16088 (99.7%)
+
+Exactly 2-Word Answers:   1 (0.0%)
+
+==================================================
+
+
+
+Fetching the COMPLETE dataset for stratified few-shot with examples strided_generalist
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 139.43 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 26.74% (1364/5101)
+
+Level 03 Hops: Accuracy 22.87% (1167/5103)
+
+Level 04 Hops: Accuracy 20.17% (1029/5101)
+
+Level 05 Hops: Accuracy 15.14% (28/185)
+
+Level 06 Hops: Accuracy 15.24% (16/105)
+
+Level 07 Hops: Accuracy 09.03% (14/155)
+
+Level 08 Hops: Accuracy 11.85% (16/135)
+
+Level 09 Hops: Accuracy 12.10% (15/124)
+
+Level 10 Hops: Accuracy 07.38% (9/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 22.68%
+
+Overall Average Fitness:  0.1814
+
+--------------------------------------------------
+
+Average Answer Length:    1.00 words
+
+Exactly 1-Word Answers:   16131 (100.0%)
+
+Exactly 2-Word Answers:   0 (0.0%)
+
+==================================================
+
+
+
+Fetching the COMPLETE dataset for stratified few-shot with examples dist_aligned_control
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 122.67 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 24.35% (1242/5101)
+
+Level 03 Hops: Accuracy 21.36% (1090/5103)
+
+Level 04 Hops: Accuracy 20.11% (1026/5101)
+
+Level 05 Hops: Accuracy 14.05% (26/185)
+
+Level 06 Hops: Accuracy 12.38% (13/105)
+
+Level 07 Hops: Accuracy 09.68% (15/155)
+
+Level 08 Hops: Accuracy 12.59% (17/135)
+
+Level 09 Hops: Accuracy 11.29% (14/124)
+
+Level 10 Hops: Accuracy 05.74% (7/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 21.39%
+
+Overall Average Fitness:  0.1711
+
+--------------------------------------------------
+
+Average Answer Length:    1.00 words
+
+Exactly 1-Word Answers:   16131 (100.0%)
+
+Exactly 2-Word Answers:   0 (0.0%)
+
+==================================================
+
+
+
+Fetching the COMPLETE dataset for stratified few-shot with examples boundary_pusher
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 127.39 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 25.88% (1320/5101)
+
+Level 03 Hops: Accuracy 22.44% (1145/5103)
+
+Level 04 Hops: Accuracy 18.02% (919/5101)
+
+Level 05 Hops: Accuracy 12.43% (23/185)
+
+Level 06 Hops: Accuracy 13.33% (14/105)
+
+Level 07 Hops: Accuracy 10.97% (17/155)
+
+Level 08 Hops: Accuracy 11.11% (15/135)
+
+Level 09 Hops: Accuracy 12.90% (16/124)
+
+Level 10 Hops: Accuracy 06.56% (8/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 21.55%
+
+Overall Average Fitness:  0.1724
+
+--------------------------------------------------
+
+Average Answer Length:    1.00 words
+
+Exactly 1-Word Answers:   16129 (100.0%)
+
+Exactly 2-Word Answers:   2 (0.0%)
+
+==================================================
+
+
+
+Fetching the COMPLETE dataset for stratified few-shot with examples hard_tail_anchor
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 178.58 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 26.13% (1333/5101)
+
+Level 03 Hops: Accuracy 20.99% (1071/5103)
+
+Level 04 Hops: Accuracy 17.57% (896/5101)
+
+Level 05 Hops: Accuracy 12.97% (24/185)
+
+Level 06 Hops: Accuracy 12.38% (13/105)
+
+Level 07 Hops: Accuracy 07.74% (12/155)
+
+Level 08 Hops: Accuracy 08.15% (11/135)
+
+Level 09 Hops: Accuracy 08.87% (11/124)
+
+Level 10 Hops: Accuracy 09.84% (12/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 20.97%
+
+Overall Average Fitness:  0.1678
+
+--------------------------------------------------
+
+Average Answer Length:    1.00 words
+
+Exactly 1-Word Answers:   16131 (100.0%)
+
+Exactly 2-Word Answers:   0 (0.0%)
+
+==================================================
+
+
+
+Fetching the COMPLETE dataset for stratified few-shot with examples bimodal_catalyst
+
+==================================================
+
+🎯 STRATIFIED FEW SHOTS REPORT
+
+==================================================
+
+Execution Time: 138.78 seconds
+
+Total Problems Evaluated: 16131
+
+
+Level 02 Hops: Accuracy 28.29% (1443/5101)
+
+Level 03 Hops: Accuracy 22.95% (1171/5103)
+
+Level 04 Hops: Accuracy 20.19% (1030/5101)
+
+Level 05 Hops: Accuracy 15.68% (29/185)
+
+Level 06 Hops: Accuracy 16.19% (17/105)
+
+Level 07 Hops: Accuracy 08.39% (13/155)
+
+Level 08 Hops: Accuracy 17.04% (23/135)
+
+Level 09 Hops: Accuracy 16.13% (20/124)
+
+Level 10 Hops: Accuracy 09.02% (11/122)
+
+--------------------------------------------------
+
+Overall Dataset Accuracy: 23.29%
+
+Overall Average Fitness:  0.1863
+
+--------------------------------------------------
+
+Average Answer Length:    1.00 words
+
+Exactly 1-Word Answers:   16131 (100.0%)
+
+Exactly 2-Word Answers:   0 (0.0%)
+
+==================================================
+
+
+

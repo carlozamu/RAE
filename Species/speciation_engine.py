@@ -18,8 +18,8 @@ class SpeciationEngine:
     def __init__(self, 
                  breeder: SpeciesBreeder,
                  target_population_size: int = 50,
-                 target_species_count: int = 5, 
-                 dropoff_age: int = 10,
+                 target_species_count: int = 4, 
+                 dropoff_age: int = 7,
                  proportional_step: float = 0.035 # Lowered step size for 0-1 scale stability
                  ):
         self.breeder = breeder

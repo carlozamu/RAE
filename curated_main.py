@@ -100,8 +100,10 @@ async def run_evolution():
     history_manager.record_generation(speciation_engine.species_list, zero_shot_stats, few_shots_stats)
     plot_path = plotter.plot_accuracy_vs_tokens(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
     plot_2_path = plotter.plot_fitness_vs_complexity(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
+    plot_3_path = plotter.plot_accuracy_by_species(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
     subprocess.Popen(['xdg-open', plot_path])
     subprocess.Popen(['xdg-open', plot_2_path]) 
+    subprocess.Popen(['xdg-open', plot_3_path])
 
     # 4. Main Evolution Loop
     log_and_print("\n🚀 Starting Evolution Loop...")
@@ -116,7 +118,8 @@ async def run_evolution():
         breed_duration = time.time() - start_breed_time
         log_and_print(f"⏱️ Breeding completed in {breed_duration:.2f} seconds. Generated {len(unevaluated_next_gen_genomes)} offspring.")
         unevaluated_next_gen: list[Phenotype] = [Phenotype(genome=g, llm_client=llm_client) for g in unevaluated_next_gen_genomes]
-        log_and_print(f"📊 Active Species count for generation {generation_idx + 1}: {len(speciation_engine.species_list)}")
+        active_species_count = sum(+1 for s in speciation_engine.species_list if s.alive)
+        log_and_print(f"📊 Active Species count for generation {generation_idx + 1}: {active_species_count}")
         log_and_print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
 
         # B. THE EVALUATION STEP
@@ -154,8 +157,10 @@ async def run_evolution():
         history_manager.record_generation(speciation_engine.species_list, zero_shot_stats, few_shots_stats)
         plot_path = plotter.plot_accuracy_vs_tokens(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
         plot_2_path = plotter.plot_fitness_vs_complexity(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
+        plot_3_path = plotter.plot_accuracy_by_species(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
         subprocess.Popen(['xdg-open', plot_path])
         subprocess.Popen(['xdg-open', plot_2_path]) 
+        subprocess.Popen(['xdg-open', plot_3_path])
 
         # G. Stop Criteria Checks
         if best_fit >= TARGET_FITNESS:

@@ -276,56 +276,215 @@ class AgentGenome:
     
     def remove_cycles(self) -> int:
         """
-        Greedy algorithm to remove cycles by disabling edges one at a time.
-        Uses Kahn's algorithm to detect cycles and scores edges for safe removal.
-        Ensures end node remains reachable from start after each removal.
+        Aggressively removes ALL cycles from the genome.
+        If removing cycles breaks connectivity, fixes connectivity afterward
+        by adding edges that don't create cycles.
         
         Returns the number of edges disabled.
         """
         edges_disabled = 0
-        max_iterations = len(self.connections)  # Safety limit
-        iteration = 0
         
-        while iteration < max_iterations:
-            iteration += 1
-            
-            # Detect cycle edges using Kahn's algorithm
+        # Phase 1: Aggressively remove all cycles
+        # We keep removing the safest cycle edge until the graph is a DAG.
+        # We do NOT check connectivity here — breaking connectivity is allowed.
+        for _ in range(10000):  # Absolute safety limit
             cycle_edges = self.detect_cycle_edges()
-            
             if not cycle_edges:
-                # No more cycles, we're done
                 break
-            
+                
             # Score all edges involved in cycles
             scored_edges = [(self.score_edge_for_removal(edge_id), edge_id) for edge_id in cycle_edges]
-            
-            # Sort by score (lowest = safest to remove)
             scored_edges.sort()
             
-            # Try to remove edges in order until we find one that preserves connectivity
-            edge_removed = False
-            for score, edge_id in scored_edges:
-                # Temporarily disable the edge
-                self.connections[edge_id].enabled = False
-                
-                # Check if end is still reachable
-                if self.verify_all_paths_lead_to_end():
-                    # Good! Keep it disabled and continue
-                    edges_disabled += 1
-                    edge_removed = True
-                    break
-                else:
-                    # Bad! Re-enable this edge and try next one
-                    self.connections[edge_id].enabled = True
-            
-            if not edge_removed:
-                # Couldn't find any safe edge to remove
-                print(f"Warning: Could not remove cycle without breaking connectivity. "
-                      f"{len(cycle_edges)} edges remain in cycles.")
-                break
+            # Remove the safest edge (lowest score = safest to remove)
+            score, edge_id = scored_edges[0]
+            self.connections[edge_id].enabled = False
+            edges_disabled += 1
+        else:
+            # If we hit the limit, verify whether cycles actually remain
+            remaining = self.detect_cycle_edges()
+            if remaining:
+                print(f"Warning: Could not remove all cycles after max iterations. "
+                    f"{len(remaining)} cycle edges may remain.")
         
-        # if iteration >= max_iterations and len(self.connections) > 0:
-        #     print(f"Warning: Max iterations reached in remove_cycles.")
+        # Phase 2: Fix connectivity if broken
+        # After the graph is guaranteed cycle-free, we restore connectivity
+        # by adding edges that respect the DAG order.
+        if not self.verify_all_paths_lead_to_end():
+            self._fix_connectivity_without_cycles()
         
         return edges_disabled
+
+    def _fix_connectivity_without_cycles(self):
+        """
+        Fixes connectivity in a DAG by adding edges.
+        Ensures all nodes are reachable from start and can reach end.
+        Only adds edges that don't create cycles.
+        """
+        if self.start_node_innovation_number is None or self.end_node_innovation_number is None:
+            return
+        
+        if self.start_node_innovation_number == self.end_node_innovation_number:
+            return
+        
+        execution_plan = self.get_execution_order()
+        if not execution_plan:
+            return
+        
+        topo_order = [node.innovation_number for node, _ in execution_plan]
+        
+        # Build adjacency lists
+        forward_adj = {node_id: [] for node_id in self.nodes}
+        backward_adj = {node_id: [] for node_id in self.nodes}
+        for conn in self.connections.values():
+            if conn.enabled and conn.in_node in self.nodes and conn.out_node in self.nodes:
+                forward_adj[conn.in_node].append(conn.out_node)
+                backward_adj[conn.out_node].append(conn.in_node)
+        
+        # --- Forward pass: Ensure all nodes reachable from start ---
+        if self.start_node_innovation_number in self.nodes:
+            reachable = {self.start_node_innovation_number}
+            queue = deque([self.start_node_innovation_number])
+            while queue:
+                curr = queue.popleft()
+                for neighbor in forward_adj[curr]:
+                    if neighbor not in reachable:
+                        reachable.add(neighbor)
+                        queue.append(neighbor)
+            
+            for node_id in topo_order:
+                if node_id not in reachable:
+                    # Try to connect from the earliest reachable node that comes before it
+                    for candidate in topo_order:
+                        if candidate in reachable and self._safe_add_edge(candidate, node_id):
+                            if node_id not in forward_adj[candidate]:
+                                forward_adj[candidate].append(node_id)
+                            if candidate not in backward_adj[node_id]:
+                                backward_adj[node_id].append(candidate)
+                            
+                            # BFS to update reachable set
+                            subqueue = deque([node_id])
+                            while subqueue:
+                                curr = subqueue.popleft()
+                                if curr not in reachable:
+                                    reachable.add(curr)
+                                for neighbor in forward_adj[curr]:
+                                    if neighbor not in reachable:
+                                        reachable.add(neighbor)
+                                        subqueue.append(neighbor)
+                            break
+                    else:
+                        print(f"Warning: Could not connect node {node_id} to start without creating cycles.")
+        
+        # --- Backward pass: Ensure all nodes can reach end ---
+        if self.end_node_innovation_number in self.nodes:
+            can_reach_end = {self.end_node_innovation_number}
+            queue = deque([self.end_node_innovation_number])
+            while queue:
+                curr = queue.popleft()
+                for neighbor in backward_adj[curr]:
+                    if neighbor not in can_reach_end:
+                        can_reach_end.add(neighbor)
+                        queue.append(neighbor)
+            
+            for node_id in reversed(topo_order):
+                if node_id not in can_reach_end:
+                    # Try to connect to the latest node that can reach end and comes after it
+                    for candidate in reversed(topo_order):
+                        if candidate in can_reach_end and self._safe_add_edge(node_id, candidate):
+                            if candidate not in forward_adj[node_id]:
+                                forward_adj[node_id].append(candidate)
+                            if node_id not in backward_adj[candidate]:
+                                backward_adj[candidate].append(node_id)
+                            
+                            # Backward BFS to update can_reach_end
+                            subqueue = deque([node_id])
+                            while subqueue:
+                                curr = subqueue.popleft()
+                                if curr not in can_reach_end:
+                                    can_reach_end.add(curr)
+                                for neighbor in backward_adj[curr]:
+                                    if neighbor not in can_reach_end:
+                                        can_reach_end.add(neighbor)
+                                        subqueue.append(neighbor)
+                            break
+                    else:
+                        print(f"Warning: Could not connect node {node_id} to end without creating cycles.")
+
+    def _safe_add_edge(self, from_node, to_node) -> bool:
+        """
+        Safely adds or enables an edge from from_node to to_node.
+        Returns True if the edge exists and is enabled without creating cycles,
+        False otherwise.
+        """
+        # Check if edge already exists
+        existing_edge_id = None
+        for edge_id, conn in self.connections.items():
+            if conn.in_node == from_node and conn.out_node == to_node:
+                existing_edge_id = edge_id
+                break
+        
+        if existing_edge_id is not None:
+            conn = self.connections[existing_edge_id]
+            if conn.enabled:
+                return True
+            
+            # Try enabling existing edge
+            conn.enabled = True
+            if not self._has_cycle():
+                return True
+            
+            # Cycle created, disable again
+            conn.enabled = False
+            return False
+        
+        # Add new edge
+        self.add_connection(from_node, to_node)
+        
+        # Find the newly added edge
+        new_edge_id = None
+        for edge_id, conn in self.connections.items():
+            if conn.in_node == from_node and conn.out_node == to_node:
+                new_edge_id = edge_id
+                break
+        
+        if new_edge_id is None:
+            return False
+        
+        if not self._has_cycle():
+            return True
+        
+        # Cycle created, remove the edge we just added
+        del self.connections[new_edge_id]
+        return False
+
+    def _has_cycle(self) -> bool:
+        """
+        Returns True if the enabled subgraph contains a cycle.
+        Uses Kahn's algorithm without modifying the graph.
+        """
+        if not self.nodes:
+            return False
+        
+        node_keys = list(self.nodes.keys())
+        in_degree = {node_id: 0 for node_id in node_keys}
+        adj = {node_id: [] for node_id in node_keys}
+        
+        for conn in self.connections.values():
+            if conn.enabled and conn.in_node in node_keys and conn.out_node in node_keys:
+                adj[conn.in_node].append(conn.out_node)
+                in_degree[conn.out_node] += 1
+        
+        queue = deque([node_id for node_id, degree in in_degree.items() if degree == 0])
+        processed = 0
+        
+        while queue:
+            curr = queue.popleft()
+            processed += 1
+            for neighbor in adj[curr]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+        
+        return processed < len(node_keys)
     

@@ -133,7 +133,7 @@ class CLUTTRManager:
             
         return batch
 
-    def get_entire_dataset_stratified(self, prompt_function: callable) -> list[dict]:
+    def get_entire_dataset_stratified(self, prompt_function: callable, examples:str = None) -> list[dict]:
         """
         Returns every single problem across ALL splits (train, validation, test).
         Extracts the reasoning hop length from 'task_name' for stratified analysis.
@@ -159,7 +159,7 @@ class CLUTTRManager:
                 except (IndexError, ValueError):
                     reasoning_length = 0 # Fallback if data is malformed
                 
-                prompt = prompt_function(story, query)
+                prompt = prompt_function(story, query, examples)
                 
                 batch.append({
                     "question": prompt,
@@ -216,7 +216,7 @@ Task: State only the one kinship word (from the posible answers) that describes 
         return baseline_prompt
     
     @staticmethod
-    def build_prompt_clutrr_few_shots(story: str, query: str) -> str:
+    def build_prompt_clutrr_few_shots(story: str, query: str, examples: str) -> str:
         clean_query = query.replace("(", "").replace(")", "").replace("'", "")
         try:
             name1, name2 = [name.strip() for name in clean_query.split(',')]
@@ -226,31 +226,38 @@ Task: State only the one kinship word (from the posible answers) that describes 
         # 1. Compress options to save context window and improve attention gravity
         options = "aunt, son-in-law, grandfather, brother, sister, father, mother, grandmother, uncle, daughter-in-law, grandson, granddaughter, father-in-law, mother-in-law, nephew, son, daughter, niece"
 
-        # 2. Construct true multi-turn few-shot history
-        few_shot_prompt = f"""<start_of_turn>user
-Possible relationships: [{options}]
-
+        # 2. Construct true multi-turn few-shot history        
+        few_shots_prompt_0 = f"""<start_of_turn>system
+Possible relationships: [{options}]<end_of_turn>
+<start_of_turn>user
 Story: [Ashley]'s daughter, [Lillian], asked her mom to read her a story. [Nicholas]'s sister [Lillian] asked him for some help planting her garden.
 CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. Nicholas is Ashley's?<end_of_turn>
 <start_of_turn>model
 son<end_of_turn>
+<start_of_turn>user
+Story: [June] went with her husband [James] to get a nice dinner for their anniversary. [Dale] is taking his son [James] out for coffee.
+CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. June is Dale's?<end_of_turn>
+<start_of_turn>model
+daughter-in-law<end_of_turn>
 <start_of_turn>user
 Story: [Wayne] was looking forward to his wife [Nancy] coming back home. She was away for the weekend with her daughter [Lorraine].
 CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. Lorraine is Wayne's?<end_of_turn>
 <start_of_turn>model
 daughter<end_of_turn>
 <start_of_turn>user
-Story: [Angelica] was mad at her brother [Ronald], because [Ronald] had called her fat. [Marie] made her son [Ronald] and her daughter [Michelle] a cake to take to [Michelle]'s father [Robert] because it was his birthday.
-CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. Robert is Angelica's?<end_of_turn>
-<start_of_turn>model
-father<end_of_turn>
-<start_of_turn>user
 Story: {story}
 CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. {name2} is {name1}'s?<end_of_turn>
 <start_of_turn>model
-"""
+"""        
         
-        return few_shot_prompt
+        final_part = f"""<start_of_turn>user
+Story: {story}
+CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. {name2} is {name1}'s?<end_of_turn>
+<start_of_turn>model
+"""        
+        few_shots_prompt = examples + final_part
+        
+        return few_shots_prompt
     
     @staticmethod
     def build_prompt_clutrr(story: str, query: str) -> str:

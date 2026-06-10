@@ -52,7 +52,8 @@ async def _evaluate_single_baseline_problem(
         # 4. Compute fitness score
         score = fitness.calculator.compute_score(
             is_correct=is_correct,
-            token_count=token_used
+            token_count=token_used,
+            answer_length=answer_length
         )
         
         return is_correct, score, answer_length, problem.get('metadata', {}).get('reasoning_length', 0), token_used
