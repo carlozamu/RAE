@@ -468,41 +468,42 @@ class Plotter:
                     continue
 
                 median = float(np.median(accs))
-                variance = float(np.var(accs))
+                q1     = float(np.percentile(accs, 25))
+                q3     = float(np.percentile(accs, 75))
                 min_v  = float(np.min(accs))
                 max_v  = float(np.max(accs))
+                iqr    = q3 - q1
 
-                # Height proportional to variance (tuned so it fits inside 0-30)
-                bar_h = min(variance * 0.6, 18.0)
-
-                if bar_h < 0.3 or len(accs) == 1:
+                if iqr == 0 or len(accs) == 1:
                     # Collapses to a point – render as diamond
                     plt.scatter(
                         [x], [median], marker='D', c=color, s=80,
                         edgecolors='white', linewidth=1.0, alpha=0.9, zorder=5
                     )
                 else:
-                    bottom = median - bar_h / 2.0
-
-                    # Chunky floating bar
+                    # Chunky floating bar: Q1 → Q3
                     plt.bar(
-                        x, bar_h, bottom=bottom, width=0.5,
+                        x, iqr, bottom=q1, width=0.5,
                         color=color, edgecolor='white', linewidth=1.0,
                         alpha=0.85, zorder=4
                     )
 
-                    # Vertical whiskers
-                    plt.plot([x, x], [bottom, min_v],
-                            color=color, linewidth=1.2, alpha=0.85, zorder=3)
-                    plt.plot([x, x], [max_v, bottom + bar_h],
+                    # Lower whisker: Q1 down to min
+                    plt.plot([x, x], [min_v, q1],
                             color=color, linewidth=1.2, alpha=0.85, zorder=3)
 
-                    # Short horizontal caps at extremes
+                    # Upper whisker: Q3 up to max
+                    plt.plot([x, x], [q3, max_v],
+                            color=color, linewidth=1.2, alpha=0.85, zorder=3)
+
+                    # Short horizontal caps at min, max, and median
                     cap = 0.2
-                    plt.plot([x - cap, x + cap], [min_v, min_v],
+                    plt.plot([x - cap, x + cap], [min_v,  min_v],
                             color=color, linewidth=1.5, alpha=0.85, zorder=3)
-                    plt.plot([x - cap, x + cap], [max_v, max_v],
+                    plt.plot([x - cap, x + cap], [max_v,  max_v],
                             color=color, linewidth=1.5, alpha=0.85, zorder=3)
+                    plt.plot([x - cap, x + cap], [median, median],
+                            color=color, linewidth=1.5, alpha=0.95, zorder=5)
             else:
                 # Dead species – single representative value
                 rep_acc = 0.0

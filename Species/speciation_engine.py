@@ -18,8 +18,8 @@ class SpeciationEngine:
     def __init__(self, 
                  breeder: SpeciesBreeder,
                  target_population_size: int = 50,
-                 target_species_count: int = 4, 
-                 dropoff_age: int = 7,
+                 target_species_count: int = 5, 
+                 dropoff_age: int = 15,
                  proportional_step: float = 0.035 # Lowered step size for 0-1 scale stability
                  ):
         self.breeder = breeder
@@ -208,10 +208,6 @@ class SpeciationEngine:
                     allocated += 1
             return allocation
 
-        # --- THE GRADUAL ASSIGNMENT ALGORITHM ---
-        # Order from least performant to most performant as requested.
-        # Fractions naturally cascade upwards, and the final (best) species 
-        # absorbs the exact remainder, perfectly protecting the total.
         sorted_species = sorted(active_species, key=lambda s: avg_fitnesses[s.id])
         
         remaining_target = offspring_target
@@ -228,11 +224,6 @@ class SpeciationEngine:
             else:
                 granted = 0
                 
-            # YOUTH PROTECTION: Guarantee 1 slot if young and if it is not made by casual outsiders (and slots are still available)
-            # if granted == 0 and s.age < self.dropoff_age and len(s.members) > 2:
-            #     granted = 1
-                
-            # Hard Cap: ensure we don't accidentally allocate more than we have left
             granted = min(granted, remaining_target)
             
             allocation[s.id] = granted

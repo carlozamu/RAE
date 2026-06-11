@@ -216,7 +216,7 @@ Task: State only the one kinship word (from the posible answers) that describes 
         return baseline_prompt
     
     @staticmethod
-    def build_prompt_clutrr_few_shots(story: str, query: str, examples: str) -> str:
+    def build_prompt_clutrr_few_shots_try_examples(story: str, query: str, examples: str) -> str:
         clean_query = query.replace("(", "").replace(")", "").replace("'", "")
         try:
             name1, name2 = [name.strip() for name in clean_query.split(',')]
@@ -256,6 +256,43 @@ CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the l
 <start_of_turn>model
 """        
         few_shots_prompt = examples + final_part
+        
+        return few_shots_prompt
+    
+    @staticmethod
+    def build_prompt_clutrr_few_shots(story: str, query: str) -> str:
+        clean_query = query.replace("(", "").replace(")", "").replace("'", "")
+        try:
+            name1, name2 = [name.strip() for name in clean_query.split(',')]
+        except ValueError:
+            name1, name2 = "Person A", "Person B"
+
+        # 1. Compress options to save context window and improve attention gravity
+        options = "aunt, son-in-law, grandfather, brother, sister, father, mother, grandmother, uncle, daughter-in-law, grandson, granddaughter, father-in-law, mother-in-law, nephew, son, daughter, niece"
+
+        # 2. Construct true multi-turn few-shot history        
+        few_shots_prompt = f"""<start_of_turn>system
+Possible relationships: [{options}]<end_of_turn>
+<start_of_turn>user
+Story: [Seth] and his grandmother [Mary] went to the science museum. They both had fun, and learned some things, too. [Arthur] enjoys going fishing with his brother. His name is [Warren]. [Seth] and his brother [Warren] always played pranks on each other [Warren] was disappointed that his father, [Alvin], would n't be at the play to see him perform. [Warren] took his son [Alvin] out to play gold later that night. [Warren] played chess with his brother [Arthur].
+CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. Mary is Warren's?<end_of_turn>
+<start_of_turn>model
+grandmother<end_of_turn>
+<start_of_turn>user
+Story: [Ross] went to his brother [Michael]'s Birthday party [Ronald]'s aunt [Erica] likes to drink a little bit too much wine at family gatherings. [Patrick] asked his brother [Ross] if he would come help him fix his car next weekend. [Erica] was mad at her son, [Michael]. She found he'd been stealing from her purse. [Robert] would n't let his son [James] go to the park by himself. [James]'s brother [Ronald] offered to go with him.
+CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. Patrick is Robert's?<end_of_turn>
+<start_of_turn>model
+nephew<end_of_turn>
+<start_of_turn>user
+Story: [Patrick]'s father, [Joseph], went bowling with his sister, [Katherine]. [Katherine] and her son [Ronald] went out to lunch together yesterday. [Alfredo] went to the Farmer's market with his mother [Erica] and his brother [Patrick]. [Ronald] went to the game with his sister [Charlsie].
+CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. Charlsie is Erica's?<end_of_turn>
+<start_of_turn>model
+niece<end_of_turn>
+<start_of_turn>user
+Story: {story}
+CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the list above. {name2} is {name1}'s?<end_of_turn>
+<start_of_turn>model
+"""
         
         return few_shots_prompt
     

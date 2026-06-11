@@ -77,7 +77,7 @@ class SpeciesBreeder:
 
             # Mutate
             child = await self.mutator.mutate(child, current_generation=generation) 
-            
+
             # Reset fitness
             child.fitness = 0.0 
 

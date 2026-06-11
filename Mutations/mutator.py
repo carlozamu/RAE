@@ -85,13 +85,9 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             p_gene = 0.8 
         else:
             # Shift the exponent so Gen 2 = 0
-            decay_steps = generation - 2 
-            
-            # Starts and decays by 15% per generation
-            p_arch = max(0.3, 0.75 * (0.85 ** decay_steps))
-            
-            # Starts and decays by 15% per generation
-            p_gene = max(0.2, 0.75 * (0.85 ** decay_steps))
+            decay_steps = generation - 1 
+            p_arch = max(0.45, 0.80 * (0.95 ** decay_steps))
+            p_gene = max(0.35, 0.80 * (0.95 ** decay_steps))
 
         # --- 2. Architectural Probabilities ---
         max_C = (node_count * (node_count - 1)) / 2.0
@@ -460,6 +456,9 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         Strategy: Cell Division (Preserve A, Create B, Link A->B)
         """
         #print(f"Splitting node: {genome.nodes[target_node].name}")
+
+        if len(genome.nodes) >= 5:
+            return
         
         # 1. Ask LLM to split content
         name1, prompt1, name2, prompt2 = await self._split_instructions(genome.nodes[target_node].instruction, genome.nodes[target_node].name)
@@ -516,287 +515,242 @@ mutator = Mutator(breeder_llm, config=tuning_config)
     async def _handle_content_mutation(self, genome: AgentGenome, node_id: int, style: str):
         """Applies the specified mutation to the node."""
 
+        # ============================================================
+        # EXPAND
+        # ============================================================
+
+        expand_ex_1 = "Classify the sentiment of the review."
+        expand_ans_1 = "Analyze the review and determine whether its overall sentiment is positive, negative, or neutral."
+
+        expand_ex_2 = "Identify the connection between the subjects."
+        expand_ans_2 = "Determine how the two subjects are related and clearly describe the nature of their connection."
+
+        expand_ex_3 = "Extract the company name."
+        expand_ans_3 = "Locate the company mentioned in the provided information and return its name."
+
+
+        # ============================================================
+        # EXPAND (END NODE)
+        # ============================================================
+
+        expand_end_ex_1 = "Determine the sentiment and answer with one word."
+        expand_end_ans_1 = "Analyze the review and determine its sentiment, then provide the final answer using exactly one word."
+
+        expand_end_ex_2 = "Identify the relationship and answer with one word."
+        expand_end_ans_2 = "Determine how the subjects are related and provide the final answer using exactly one word."
+
+        expand_end_ex_3 = "Determine the category and answer with one word."
+        expand_end_ans_3 = "Analyze the provided information, identify the correct category, and provide the final answer using exactly one word."
+
+
+        # ============================================================
+        # SIMPLIFY
+        # ============================================================
+
+        simplify_ex_1 = "Carefully examine the text and determine the overall sentiment expressed by the author."
+        simplify_ans_1 = "Determine the sentiment of the text."
+
+        simplify_ex_2 = "Analyze all available evidence to infer the exact relationship between the individuals."
+        simplify_ans_2 = "Determine the relationship between the individuals."
+
+        simplify_ex_3 = "Locate the organization referenced in the document and extract its official name."
+        simplify_ans_3 = "Extract the organization name."
+
+
+        # ============================================================
+        # SIMPLIFY (END NODE)
+        # ============================================================
+
+        simplify_end_ex_1 = "Carefully analyze the review and express its sentiment using exactly one word."
+        simplify_end_ans_1 = "Determine the sentiment and answer with exactly one word."
+
+        simplify_end_ex_2 = "Analyze the available information to identify the exact relationship and express it using a single word."
+        simplify_end_ans_2 = "Determine the relationship and answer with exactly one word."
+
+        simplify_end_ex_3 = "Determine the correct category from the provided information and provide only a single-word response."
+        simplify_end_ans_3 = "Determine the category and answer with exactly one word."
+
+
+        # ============================================================
+        # REPHRASE
+        # ============================================================
+
+        rephrase_ex_1 = "Determine the sentiment of the text."
+        rephrase_ans_1 = "What sentiment does the text express?"
+
+        rephrase_ex_2 = "Determine the relationship between the individuals."
+        rephrase_ans_2 = "How are the individuals related to one another?"
+
+        rephrase_ex_3 = "Extract the organization name."
+        rephrase_ans_3 = "Which organization is mentioned in the information provided?"
+
+
+        # ============================================================
+        # REPHRASE (END NODE)
+        # ============================================================
+
+        rephrase_end_ex_1 = "Determine the sentiment and answer using exactly one word."
+        rephrase_end_ans_1 = "What single word best describes the sentiment?"
+
+        rephrase_end_ex_2 = "Determine the relationship and answer using exactly one word."
+        rephrase_end_ans_2 = "Which one-word term best describes the relationship?"
+
+        rephrase_end_ex_3 = "Determine the category and output exactly one word."
+        rephrase_end_ans_3 = "What single-word category best matches the information?"
+
+
+        # ============================================================
+        # PERSONA
+        # ============================================================
+
+        persona_ex_1 = "Determine the sentiment of the text."
+        persona_ans_1 = "As an experienced sentiment analyst, determine the sentiment of the text."
+
+        persona_ex_2 = "Determine the relationship between the individuals."
+        persona_ans_2 = "As a careful relationship analyst, determine the relationship between the individuals."
+
+        persona_ex_3 = "Extract the organization name."
+        persona_ans_3 = "As an information extraction specialist, extract the organization name."
+
+
+        # ============================================================
+        # PERSONA (END NODE)
+        # ============================================================
+
+        persona_end_ex_1 = "Determine the sentiment and answer with exactly one word."
+        persona_end_ans_1 = "As an experienced sentiment analyst, determine the sentiment and answer with exactly one word."
+
+        persona_end_ex_2 = "Determine the relationship and answer with exactly one word."
+        persona_end_ans_2 = "As a careful relationship analyst, determine the relationship and answer with exactly one word."
+
+        persona_end_ex_3 = "Determine the category and output exactly one word."
+        persona_end_ans_3 = "As a classification expert, determine the category and output exactly one word."
+
+
+        # ============================================================
+        # REASONING
+        # ============================================================
+
+        reasoning_ex_1 = "Determine the sentiment of the text."
+        reasoning_ans_1 = "Determine the sentiment of the text. Consider all relevant evidence before deciding on the answer."
+
+        reasoning_ex_2 = "Determine the relationship between the individuals."
+        reasoning_ans_2 = "Determine the relationship between the individuals. Carefully evaluate the available information before answering."
+
+        reasoning_ex_3 = "Extract the organization name."
+        reasoning_ans_3 = "Extract the organization name. Verify that the selected entity matches the requested information before answering."
+
+
+        # ============================================================
+        # REASONING (END NODE)
+        # ============================================================
+
+        reasoning_end_ex_1 = "Determine the sentiment and answer using exactly one word."
+        reasoning_end_ans_1 = "Determine the sentiment. Consider all relevant evidence before deciding on the answer. Respond using exactly one word."
+
+        reasoning_end_ex_2 = "Determine the relationship and answer using exactly one word."
+        reasoning_end_ans_2 = "Determine the relationship. Carefully evaluate the available information before answering. Respond using exactly one word."
+
+        reasoning_end_ex_3 = "Determine the category and output exactly one word."
+        reasoning_end_ans_3 = "Determine the category. Verify that the selected category is supported by the information before answering. Output exactly one word."
+
         node = genome.nodes[node_id]
-
         #print(f"Applying {style} mutation to node: {node.name}\nOriginal: {node.instruction}")
-
-        expand_prompt = f"""<<start_of_turn>system
-Task: Instruction Expansion.
-
-You are an editor. Rewrite the user's instruction to make it clearer and more explicit.
-
-Rules:
-1. Output ONLY the rewritten instruction.
-2. NEVER execute, solve, or answer the instruction.
-3. Preserve the original goal exactly.
-4. Preserve ALL constraints and output formats.
-5. Add clarity, not unnecessary length.
-6. Do NOT introduce new goals.
-7. Stop immediately after the rewritten instruction.
-8. Do NOT add explanations, examples, or notes.
-9. The output MUST be at least 20 words long.
-<<end_of_turn>
-<<start_of_turn>user
-Original: Identify the connection between the two subjects.<end_of_turn>
-<<start_of_turn>model
-Detailed Version: Identify the two target subjects, analyze their shared attributes or causal links, then explicitly define the nature of their connection.<end_of_turn>
-<<start_of_turn>user
-Original: {node.instruction}<end_of_turn>
-<<start_of_turn>model
-Detailed Version:"""
-
-        expand_prompt_end = f"""<<start_of_turn>system
-Task: Instruction Expansion.
-
-You are an editor. Rewrite the user's instruction to make it clearer and more explicit.
-
-Rules:
-1. Output ONLY the rewritten instruction.
-2. NEVER execute, solve, or answer the instruction.
-3. Preserve the original goal exactly.
-4. Preserve ALL constraints and output formats.
-5. The instruction MUST still require a single-word final answer.
-6. Do NOT expand the output requirement into multiple outputs.
-7. Stop immediately after the rewritten instruction.
-8. Do NOT add explanations, examples, or notes.
-9. The output MUST be at least 20 words long.
-<<end_of_turn>
-<<start_of_turn>user
-Original: Identify the connection and state it in exactly one word.<end_of_turn>
-<<start_of_turn>model
-Detailed Version: Identify the two target subjects, analyze their shared attributes or causal links, explicitly define the nature of their connection, and state it in exactly one word.<end_of_turn>
-<<start_of_turn>user
-Original: {node.instruction}<end_of_turn>
-<<start_of_turn>model
-Detailed Version:"""
-
-        simplify_prompt = f"""<<start_of_turn>system
-You are a prompt editor. You rewrite AI instructions to make them shorter and clearer.
-
-CRITICAL RULES:
-1. The input is an AI instruction (a command telling the AI what to do).
-2. The output MUST be an AI instruction (a command telling the AI what to do).
-3. You ONLY rewrite the instruction. You NEVER answer or execute it.
-4. The output MUST contain a verb and describe the task to perform.
-5. The output MUST NOT be a single word, a topic keyword, or an answer to the task.
-6. Preserve the original task goal exactly.
-7. Preserve ALL output format constraints.
-8. If the instruction is already short, rephrase it with different words. Do NOT make it shorter.
-9. The output MUST be at least 6 words long.
-10. Output ONLY the rewritten instruction. No explanations.
-<<end_of_turn>
-<<start_of_turn>user
-Original instruction: First, locate the two target subjects in the provided text. Second, trace any intermediary links or shared attributes between them. Finally, synthesize these links to deduce their exact connection.
-<<end_of_turn>
-<<start_of_turn>model
-Rewritten instruction: Identify the connection between the subjects by analyzing their shared attributes.
-<<end_of_turn>
-<<start_of_turn>user
-Original instruction: Analyze the family relationship and provide the answer.
-<<end_of_turn>
-<<start_of_turn>model
-Rewritten instruction: Determine the family relationship and state the answer.
-<<end_of_turn>
-<<start_of_turn>user
-Original instruction: {node.instruction}
-<<end_of_turn>
-<<start_of_turn>model
-Rewritten instruction:"""
-
-        simplify_prompt_end = f"""<<start_of_turn>system
-You are a prompt editor. You rewrite AI instructions to make them shorter and clearer.
-
-CRITICAL RULES:
-1. The input is an AI instruction (a command telling the AI what to do).
-2. The output MUST be an AI instruction (a command telling the AI what to do).
-3. You ONLY rewrite the instruction. You NEVER answer or execute it.
-4. The output MUST contain a verb and describe the task to perform.
-5. The output MUST NOT be a single word, a topic keyword, or an answer to the task.
-6. Preserve the original task goal exactly.
-7. Preserve ALL output format constraints, especially the one-word answer requirement.
-8. The rewritten instruction MUST still require a single-word final answer. Do NOT remove this constraint.
-9. If the instruction is already short, rephrase it with different words. Do NOT make it shorter.
-10. The output MUST be at least 6 words long.
-
-<<end_of_turn>
-<<start_of_turn>user
-Original instruction: First, locate the two target subjects in the provided text. Second, trace any intermediary links or shared attributes between them. Finally, synthesize these links to deduce their exact connection and state it in exactly one kinship word.
-<<end_of_turn>
-<<start_of_turn>model
-Rewritten instruction: Identify the connection between the subjects and state it in exactly one kinship word.
-<<end_of_turn>
-<<start_of_turn>user
-Original instruction: Determine the exact kinship relationship and output it using exactly one word.
-<<end_of_turn>
-<<start_of_turn>model
-Rewritten instruction: Identify the kinship relation and reply with exactly one word.
-<<end_of_turn>
-<<start_of_turn>user
-Original instruction: {node.instruction}
-<<end_of_turn>
-<<start_of_turn>model
-Rewritten instruction:"""
-
-        reformulate_prompt = f"""<<start_of_turn>system
-Task: Instruction Optimization.
-
-You are an editor. Rewrite the instruction to improve clarity for a small language model.
-
-Rules:
-1. Output ONLY the rewritten instruction.
-2. NEVER execute, solve, or answer the instruction.
-3. Preserve the original goal exactly.
-4. Preserve the output format exactly.
-5. Use short direct sentences.
-6. Avoid ambiguity.
-7. Prefer concrete verbs.
-8. Remove redundant words.
-9. Stop immediately after the rewritten instruction.
-10. Do NOT add explanations, examples, or notes.
-<<end_of_turn>
-<<start_of_turn>user
-Original: State only the single kinship word that describes the relationship.<end_of_turn>
-<<start_of_turn>model
-Reformulated Version: What specific kinship term defines their connection?<end_of_turn>
-<<start_of_turn>user
-Original: {node.instruction}<end_of_turn>
-<<start_of_turn>model
-Reformulated Version:"""
-
-        reformulate_prompt_end = f"""<<start_of_turn>system
-Task: Instruction Optimization.
-
-You are an editor. Rewrite the instruction to improve clarity for a small language model.
-
-Rules:
-1. Output ONLY the rewritten instruction.
-2. NEVER execute, solve, or answer the instruction.
-3. Preserve the original goal exactly.
-4. Preserve the output format exactly.
-5. Use short direct sentences.
-6. Avoid ambiguity.
-7. Prefer concrete verbs.
-8. Remove redundant words.
-9. If the instruction requires one-word output, the rewritten instruction MUST also require one-word output.
-10. Stop immediately after the rewritten instruction.
-11. Do NOT add explanations, examples, or notes.
-<<end_of_turn>
-<<start_of_turn>user
-Original: State only the single kinship word that describes the relationship.<end_of_turn>
-<<start_of_turn>model
-Reformulated Version: What specific kinship term defines their connection? Output only that single word.<end_of_turn>
-<<start_of_turn>user
-Original: {node.instruction}<end_of_turn>
-<<start_of_turn>model
-Reformulated Version:"""
-
-        persona_prompt = f"""<<start_of_turn>system
-Task: Persona Injection.
-
-You are an editor. Rewrite the instruction by adding a reasoning-oriented expert persona.
-
-Rules:
-1. Output ONLY the rewritten instruction.
-2. NEVER execute, solve, or answer the instruction.
-3. Preserve the original goal exactly.
-4. Preserve ALL constraints and output formats.
-5. Use personas that reinforce analytical reasoning (e.g., careful logician, methodical analyst).
-6. Do NOT introduce domain-specific assumptions that change the task.
-7. The output MUST be at least 6 words long.
-<<end_of_turn>
-<<start_of_turn>user
-Original: Identify the connection between the subjects.<end_of_turn>
-<<start_of_turn>model
-Mutated Version: As a careful logician, identify the connection between the subjects.<end_of_turn>
-<<start_of_turn>user
-Original: {node.instruction}<end_of_turn>
-<<start_of_turn>model
-Mutated Version:"""
-
-        persona_prompt_end = f"""<<start_of_turn>system
-Task: Persona Injection.
-
-You are an editor. Rewrite the instruction by adding a reasoning-oriented expert persona.
-
-Rules:
-1. Output ONLY the rewritten instruction.
-2. NEVER execute, solve, or answer the instruction.
-3. Preserve the original goal exactly.
-4. Preserve ALL constraints and output formats.
-5. Use personas that reinforce analytical reasoning (e.g., careful logician, methodical analyst).
-6. Do NOT introduce domain-specific assumptions that change the task.
-7. The output MUST be at least 6 words long.
-<<end_of_turn>
-<<start_of_turn>user
-Original: Identify the connection and state it in exactly one kinship term.<end_of_turn>
-<<start_of_turn>model
-Mutated Version: As a careful logician, identify the connection and state it in exactly one kinship term.<end_of_turn>
-<<start_of_turn>user
-Original: {node.instruction}<end_of_turn>
-<<start_of_turn>model
-Mutated Version:"""
-
-        reasoning_prompt = f"""<<start_of_turn>system
-Task: Reasoning Injection.
-
-You are an editor. Rewrite the instruction by adding a reasoning strategy to the instruction text itself.
-
-Rules:
-1. Output ONLY the rewritten instruction.
-2. NEVER execute, solve, or answer the instruction.
-3. Preserve the original goal exactly.
-4. Preserve ALL output constraints.
-5. Add a reasoning strategy to the instruction text.
-<<end_of_turn>
-<<start_of_turn>user
-Original: Deduce the exact relational link connecting the specified entities.<end_of_turn>
-<<start_of_turn>model
-Mutated Version: Deduce the exact relational link connecting the specified entities. Before answering, apply step-by-step reasoning internally to ensure accuracy.<end_of_turn>
-<<start_of_turn>user
-Original: {node.instruction}<end_of_turn>
-<<start_of_turn>model
-Mutated Version:"""
-
-        reasoning_prompt_end = f"""<<start_of_turn>system
-Task: Reasoning Injection.
-
-You are an editor. Rewrite the instruction by adding a reasoning strategy to the instruction text itself.
-
-Rules:
-1. Output ONLY the rewritten instruction.
-2. NEVER execute, solve, or answer the instruction.
-3. Preserve the original goal exactly.
-4. Preserve ALL output constraints.
-5. The instruction MUST still require a single-word final answer.
-6. Add a reasoning strategy to the instruction text.
-7. The instruction must encourage internal reasoning, but must NOT require the reasoning to be shown in the output.
-8. The output MUST be at least 6 words long.
-<<end_of_turn>
-<<start_of_turn>user
-Original: Deduce the exact relational link and state it in exactly one word.<end_of_turn>
-<<start_of_turn>model
-Mutated Version: Deduce the exact relational link. Before answering, apply step-by-step reasoning internally to ensure accuracy. State it in exactly one word.<end_of_turn>
-<<start_of_turn>user
-Original: {node.instruction}<end_of_turn>
-<<start_of_turn>model
-Mutated Version:"""
-
 
         is_end_node = (node_id == genome.end_node_innovation_number)
         # Select the prompt
         if style == "expand":
-            prompt = expand_prompt_end if is_end_node else expand_prompt
+            task = "Instruction Expansion. Rewrite the instruction to make it clearer, more specific, and easier to follow."
+
+            ex_1 = expand_ex_1 if not is_end_node else expand_end_ex_1
+            ans_1 = expand_ans_1 if not is_end_node else expand_end_ans_1
+
+            ex_2 = expand_ex_2 if not is_end_node else expand_end_ex_2
+            ans_2 = expand_ans_2 if not is_end_node else expand_end_ans_2
+
+            ex_3 = expand_ex_3 if not is_end_node else expand_end_ex_3
+            ans_3 = expand_ans_3 if not is_end_node else expand_end_ans_3
+
         elif style == "simplify":
-            prompt = simplify_prompt_end if is_end_node else simplify_prompt
+            task = "Instruction Simplification. Rewrite the instruction to make it shorter, simpler, and easier to understand."
+
+            ex_1 = simplify_ex_1 if not is_end_node else simplify_end_ex_1
+            ans_1 = simplify_ans_1 if not is_end_node else simplify_end_ans_1
+
+            ex_2 = simplify_ex_2 if not is_end_node else simplify_end_ex_2
+            ans_2 = simplify_ans_2 if not is_end_node else simplify_end_ans_2
+
+            ex_3 = simplify_ex_3 if not is_end_node else simplify_end_ex_3
+            ans_3 = simplify_ans_3 if not is_end_node else simplify_end_ans_3
+
         elif style == "persona":
-            prompt = persona_prompt_end if is_end_node else persona_prompt
+            task = "Persona Injection. Rewrite the instruction by adding or refining an expert persona while preserving the original task."
+
+            ex_1 = persona_ex_1 if not is_end_node else persona_end_ex_1
+            ans_1 = persona_ans_1 if not is_end_node else persona_end_ans_1
+
+            ex_2 = persona_ex_2 if not is_end_node else persona_end_ex_2
+            ans_2 = persona_ans_2 if not is_end_node else persona_end_ans_2
+
+            ex_3 = persona_ex_3 if not is_end_node else persona_end_ex_3
+            ans_3 = persona_ans_3 if not is_end_node else persona_end_ans_3
+
         elif style == "reasoning":
-            prompt = reasoning_prompt_end if is_end_node else reasoning_prompt
+            task = "Reasoning Injection. Rewrite the instruction by adding or refining a reasoning strategy that helps solve the task more accurately."
+
+            ex_1 = reasoning_ex_1 if not is_end_node else reasoning_end_ex_1
+            ans_1 = reasoning_ans_1 if not is_end_node else reasoning_end_ans_1
+
+            ex_2 = reasoning_ex_2 if not is_end_node else reasoning_end_ex_2
+            ans_2 = reasoning_ans_2 if not is_end_node else reasoning_end_ans_2
+
+            ex_3 = reasoning_ex_3 if not is_end_node else reasoning_end_ex_3
+            ans_3 = reasoning_ans_3 if not is_end_node else reasoning_end_ans_3
+
         else:
-            prompt = reformulate_prompt_end if is_end_node else reformulate_prompt
+            task = "Instruction Rephrasing. Rewrite the instruction using a different wording or writing style while preserving its meaning."
+
+            ex_1 = rephrase_ex_1 if not is_end_node else rephrase_end_ex_1
+            ans_1 = rephrase_ans_1 if not is_end_node else rephrase_end_ans_1
+
+            ex_2 = rephrase_ex_2 if not is_end_node else rephrase_end_ex_2
+            ans_2 = rephrase_ans_2 if not is_end_node else rephrase_end_ans_2
+
+            ex_3 = rephrase_ex_3 if not is_end_node else rephrase_end_ex_3
+            ans_3 = rephrase_ans_3 if not is_end_node else rephrase_end_ans_3
+
+        end_rule = "5. The edited instruction must still require exactly one word as the final output." if is_end_node else ""
+        template = f"""<<start_of_turn>system
+Task: {task}
+Rules:
+1. Output only the edited instruction as a single complete, natural-sounding sentence.
+2. Do not execute, solve, or answer the instruction.
+3. Preserve the original goal, constraints, and output format exactly.
+4. Do not introduce new requirements or objectives.
+{end_rule}
+<<end_of_turn>
+<<start_of_turn>user
+Instruction: {ex_1}<end_of_turn>
+<<start_of_turn>model
+{ans_1}
+<<end_of_turn>
+<<start_of_turn>user
+Instruction: {ex_2}<end_of_turn>
+<<start_of_turn>model
+{ans_2}
+<<end_of_turn>
+<<start_of_turn>user
+Instruction: {ex_3}<end_of_turn>
+<<start_of_turn>model
+{ans_3}
+<<end_of_turn>
+<<start_of_turn>user
+Instruction: {node.instruction}<end_of_turn>
+<<start_of_turn>model
+"""
         
         # CRITICAL FIX: Temperature set to 0.8 to force genetic diversity
-        response: str = await self.llm.generate_text(prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
+        response: str = await self.llm.generate_text(template, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
         
         if response and len(response.split()) > 3:
             node.instruction = response.strip()
@@ -827,6 +781,7 @@ Mutated Version:"""
                 genome.add_node(node) # Update the node in the genome list
         else:
             print(f"Failed to generate new instruction for {node.name} with style {style}. Faulty response: {response}\n")
+    
     async def _generate_new_node(self, name1: str, inst1: str, name2: str, inst2: str) -> PromptNode:
         """
         Asks for a bridging cognitive step.

@@ -23,9 +23,9 @@ from Species.speciation_engine import SpeciationEngine
 # --- Configuration ---
 MODEL_NAME = "google/gemma-3-1b-it" # Ensure this matches your local Ollama or vLLM setup
 BASE_URL = "http://localhost:8000"  # Ensure this matches your local Ollama or vLLM setup
-MAX_GENERATIONS = 500
-MAX_TIME_SECONDS = 3600 * 10 # 10 Hours
-TARGET_FITNESS = 20.0        # Higher is better (Max is 100.0)
+MAX_GENERATIONS = 50
+MAX_TIME_SECONDS = 3600 * 15 # 15 Hours
+TARGET_FITNESS = 50.0        # Higher is better (Max is 100.0)
 STARTING_PROMPT = "Task: State only the one kinship word (from the posible answers) that describes the family relationship."
 NUM_INDIVIDUALS = 50
 TARGET_SPECIES = 4
