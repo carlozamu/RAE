@@ -1,5 +1,7 @@
-import random
 import copy
+
+import numpy as np
+import random
 from Genome.agent_genome import AgentGenome
 from Gene.gene import PromptNode
 from Gene.connection import Connection
@@ -7,7 +9,7 @@ from Utils.utilities import SemanticRegistry
 #from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
 
-MUTATIONS_TEMPERATURE = 0.8
+MUTATIONS_TEMPERATURE = 1.0
 
 class MutType:
     # Architectural (Global Topology)
@@ -86,8 +88,8 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         else:
             # Shift the exponent so Gen 2 = 0
             decay_steps = generation - 1 
-            p_arch = max(0.45, 0.80 * (0.95 ** decay_steps))
-            p_gene = max(0.35, 0.80 * (0.95 ** decay_steps))
+            p_arch = max(0.5, 0.85 * (0.95 ** decay_steps))
+            p_gene = max(0.3, 0.80 * (0.95 ** decay_steps), (0.8/node_count))
 
         # --- 2. Architectural Probabilities ---
         max_C = (node_count * (node_count - 1)) / 2.0
@@ -120,7 +122,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             p_remove_conn = remove_conn * 0.35
         
         # --- 3. Gene Probabilities (Structuring -> Compression) ---
-        split = max(0.0, 0.5 - node_count * 0.1)
+        split = max(0.0, 0.4 - node_count * 0.1)
         others = (1.0 - split) / 5 
 
         return {
@@ -181,191 +183,122 @@ mutator = Mutator(breeder_llm, config=tuning_config)
     def _pick_from_cdf(self, cdf: dict):
         """Randomly selects a key based on the CDF."""
         if not cdf: return None
-        r = random.random()
+        rng = np.random.default_rng()
+        r = rng.random()
         for key, cumulative_prob in cdf.items():
             if r <= cumulative_prob:
                 return key
         return list(cdf.keys())[-1]
     
     def _get_ancestors(self, genome: AgentGenome, target_node_id: int) -> set[int]:
-        """
-        Returns a set of IDs of all nodes that can reach target_node_id.
-        Uses Reverse-DFS.
-        """
-        # 1. Build Reverse Adjacency List (Map: Node -> Parents)
         parents_map = {nin: [] for nin in genome.nodes.keys()}
         for conn in genome.connections.values():
-            if conn.enabled:
-                if conn.out_node in parents_map.keys():
-                    parents_map[conn.out_node].append(conn.in_node)
+            if conn.enabled and conn.out_node in parents_map:
+                parents_map[conn.out_node].append(conn.in_node)
         
-        # 2. Perform DFS backwards from target
         ancestors = set()
         stack = [target_node_id]
-        
         while stack:
             current = stack.pop()
-            for parent_innovation_numbers in parents_map.get(current, []):
-                if parent_innovation_numbers not in ancestors:
-                    ancestors.add(parent_innovation_numbers)
-                    stack.append(parent_innovation_numbers)
-        
+            for parent_id in parents_map.get(current, []):
+                if parent_id not in ancestors:
+                    ancestors.add(parent_id)
+                    stack.append(parent_id)
         return ancestors
 
-    # --- Architectural Mutation Handlers ---
     async def _handle_add_node(self, genome: AgentGenome):
-        """
-        Adds a new node by splitting an existing connection.
-        """
-        if not genome.connections: return
+        enabled_conns = [c for c in genome.connections.values() if c.enabled]
+        if not enabled_conns: return
 
-        # choose a radnom connection to split
-        connection = random.choice(list(c for c in genome.connections.values() if c.enabled))
-        if not connection: return
-
-        # get name and instructions of the in_node and out_node
+        connection = random.choice(enabled_conns)
         in_node = genome.nodes[connection.in_node]
         out_node = genome.nodes[connection.out_node]
 
-        # create a new node and insert it between in_node and out_node of the chosen connection
-        new_node: PromptNode = await self._generate_new_node(in_node.name, in_node.instruction, out_node.name, out_node.instruction)
-        innovation_number =self.semantic_registry.get_or_create_innovation_number(new_node.embedding, set(genome.nodes.keys()), new_node.instruction)
-        new_node.innovation_number = innovation_number
+        new_node = await self._generate_new_node(in_node.name, in_node.instruction, out_node.name, out_node.instruction)
+        if new_node is None: return
+        
+        # Inject structural ID assignment using your registry layout
+        # Mocking an innovation sequence fallback if registry isn't assigned
+        new_id = self.semantic_registry.get_or_create_innovation_number(new_node.embedding, set(genome.nodes.keys()), new_node.instruction) if self.semantic_registry else random.randint(10000, 99999)
+        new_node.innovation_number = new_id
+        
         genome.add_node(new_node)
-        # disable the chosen connection
         connection.enabled = False
-        # add two new connections
+        
         genome.add_connection(connection.in_node, new_node.innovation_number)
         genome.add_connection(new_node.innovation_number, connection.out_node)
-        #md_logger.log_event(f"""Added new node '{new_node.name}' between '{in_node.name}' and '{out_node.name}'""")
+
+        return
 
     def _handle_remove_node(self, genome: AgentGenome):
-        # choose a random node to remove
-        node_innovation_number: str = random.choice(list(genome.nodes.keys()))
-        if node_innovation_number == genome.start_node_innovation_number or node_innovation_number == genome.end_node_innovation_number:
-            return # do not remove start or end nodes
+        removable_nodes = [
+            nid for nid in genome.nodes.keys() 
+            if nid not in (genome.start_node_innovation_number, genome.end_node_innovation_number)
+        ]
+        if not removable_nodes: return
         
-        incoming_node_innovation_numbers = []
-        outgoing_node_innovation_numbers = []
-        
-        for conn in list(genome.connections.values()):            
-            if conn.out_node == node_innovation_number:
-                incoming_node_innovation_numbers.append(conn.in_node)
-                del genome.connections[f"{conn.in_node}.{conn.out_node}"] # Remove the connection from the genome
-            elif conn.in_node == node_innovation_number:
-                outgoing_node_innovation_numbers.append(conn.out_node)
-                del genome.connections[f"{conn.in_node}.{conn.out_node}"] # Remove the connection from the genome          
-        
-        random.shuffle(incoming_node_innovation_numbers)
-        random.shuffle(outgoing_node_innovation_numbers)
-        
-        if incoming_node_innovation_numbers and outgoing_node_innovation_numbers:
-            # A. Determine the larger and smaller lists
-            max_len = max(len(incoming_node_innovation_numbers), len(outgoing_node_innovation_numbers))
+        for node_id in removable_nodes:
+            node_backup = genome.nodes[node_id].copy()
             
-            # Loop up to the maximum count to ensure coverage
-            for i in range(max_len):
-                # Get input: if i is out of bounds, wrap around (modulo) 
-                # or pick random to handle the "leftovers"
-                in_innovation_number = incoming_node_innovation_numbers[i % len(incoming_node_innovation_numbers)]
-                
-                # Get output: same logic
-                out_innovation_number = outgoing_node_innovation_numbers[i % len(outgoing_node_innovation_numbers)]
-                
-                # Add connection
-                genome.add_connection(in_innovation_number, out_innovation_number)
+            incoming_nodes = [c.in_node for c in genome.connections.values() if c.out_node == node_id and c.enabled]
+            outgoing_nodes = [c.out_node for c in genome.connections.values() if c.in_node == node_id and c.enabled]
 
-        # 5. Delete the Node
-        genome.nodes.pop(node_innovation_number)
-        #md_logger.log_event(f"Removed node '{node_innovation_number}' and reconnected its neighbors.")
+            removed_conns = genome.remove_node_safely(node_id)
+            
+            new_conn_ids = []
+            if incoming_nodes and outgoing_nodes:
+                max_len = max(len(incoming_nodes), len(outgoing_nodes))
+                for i in range(max_len):
+                    u = incoming_nodes[i % len(incoming_nodes)]
+                    v = outgoing_nodes[i % len(outgoing_nodes)]
+                    c = genome.add_connection(u, v)
+                    new_conn_ids.append(c.innovation_number)
+                    
+            if not genome.verify_all_paths_lead_to_end():
+                # Rollback transaction cleanly
+                for cid in new_conn_ids:
+                    genome.remove_connection(cid)
+                genome.add_node(node_backup)
+                for c_id, conn in removed_conns.items():
+                    genome.connections[c_id] = conn
+            else:
+                return
+
+        return
 
     def _handle_add_connection(self, genome: AgentGenome):
-        """
-        Adds a new connection.
-        Strategy:
-        1. Pick random Source (A).
-        2. Find all Ancestors of A (Nodes that can reach A).
-        3. Valid Targets = All Nodes - Ancestors - Existing Targets - START.
-        4. Connect A -> Random Valid Target.
-        """
-        # 0. If the graph is too small, skip
-        if len(genome.nodes) < 3:
-            return
-        # 1. Candidates for Source (A): Any node except END
-        # We convert values to a list to pick randomly
+        if len(genome.nodes) < 3: return
         possible_inputs = [n for n in genome.nodes.keys() if n != genome.end_node_innovation_number]
-
-        # Shuffle to ensure random selection order without bias
         random.shuffle(possible_inputs)
 
-        source_node = None
-        valid_targets: list[str] = []
-
-        # Try finding a source with at least one valid target
-        # (Usually the first one works, but if the graph is fully connected, we might need to try others)
         for candidate in possible_inputs:
+            ancestors = self._get_ancestors(genome, candidate)
+            existing_targets = {c.out_node for c in genome.connections.values() if c.in_node == candidate}
             
-            # A. Identify invalid targets (Ancestors)
-            # If B can reach A, then adding A->B creates a cycle.
-            ancestor_innovation_numbers = self._get_ancestors(genome, candidate)
+            valid_targets = [
+                n for n in genome.nodes.keys()
+                if n != genome.start_node_innovation_number
+                and n != candidate
+                and n not in ancestors
+                and n not in existing_targets
+            ]
             
-            # B. Identify existing connections (Duplicates)
-            existing_target_innovation_numbers = set()
-            for conn in genome.connections.values():
-                if conn.in_node == candidate: # Even disabled ones count to avoid dupes
-                    existing_target_innovation_numbers.add(conn.out_node)
-            
-            # C. Filter all nodes to find valid B candidates
-            # Valid B = (Not Ancestor) AND (Not Start) AND (Not Self) AND (Not Duplicate)
-            candidates_for_b = []
-            for node_innovation_number in genome.nodes.keys():
-                if node_innovation_number == genome.start_node_innovation_number: continue   # Cannot connect to START
-                if node_innovation_number == candidate: continue       # No self loops
-                if node_innovation_number in ancestor_innovation_numbers: continue       # No cycles
-                if node_innovation_number in existing_target_innovation_numbers: continue # No duplicates
-                
-                candidates_for_b.append(node_innovation_number)
-            
-            if candidates_for_b:
-                source_node = candidate
-                valid_targets = candidates_for_b
-                break
-        
-        # 2. Execute Mutation if valid pair found
-        if source_node and valid_targets:
-            target_innovation_number = random.choice(valid_targets)
-            #print(f"Global: Adding connection {genome.nodes[source_node].name} -> {genome.nodes[target_innovation_number].name}")
-            genome.add_connection(source_node, target_innovation_number)
-            #md_logger.log_event(f"""Added new connection from '{genome.nodes[source_node].name}' to '{genome.nodes[target_innovation_number].name}'""")
-        #else:
-            #print("Global: Graph is fully saturated. No new connections possible.")
-            
+            if valid_targets:
+                target = random.choice(valid_targets)
+                genome.add_connection(candidate, target)
+                return
+
     def _handle_remove_connection(self, genome: AgentGenome):
-        """
-        Removes a random connection, ensuring global graph integrity.
-        Constraints: The Start Node MUST maintain at least one valid path to the End Node.
-        """
-        if not genome.connections: return
-        
         active_connections = [c for c in genome.connections.values() if c.enabled]
-        if len(active_connections) < len(genome.nodes):
-            return
+        if len(active_connections) < len(genome.nodes): return
 
-        # 1. Shuffle candidates so we test them randomly
-        candidates = active_connections.copy()
-        random.shuffle(candidates)
-
-        # 2. Test and Revert (Global Integrity Check)
-        for target_conn in candidates:
+        random.shuffle(active_connections)
+        for target_conn in active_connections:
             target_conn.enabled = False
-            
-            # Check if Start can still reach End
             if genome.verify_all_paths_lead_to_end():
-                return 
+                return
             else:
                 target_conn.enabled = True
-                
-        # print("Global: No removable connections found (all are critical bridges).")
 
 # ------- Main Mutation Logic -------
     async def mutate(self, genome: AgentGenome, current_generation:int=0) -> AgentGenome:
@@ -389,9 +322,11 @@ mutator = Mutator(breeder_llm, config=tuning_config)
 
         # 3. Create Offspring (Deep Copy)
         mutated_genome = genome.copy()
+        rng = np.random.default_rng()
+        random_number = rng.random()
 
         # 4. Global Architectural Mutation (Single Event)
-        if random.random() < p_arch_event:
+        if random_number < p_arch_event:
             mutation_type = self._pick_from_cdf(arch_cdf)
             if mutation_type:
                 await self._apply_global_mutation(mutated_genome, mutation_type)
@@ -401,9 +336,6 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         # 5. Gene Level Mutations (Per Node Check)
         await self._apply_gene_mutations(mutated_genome, p_mutate_node, gene_cdf)
         #md_logger.log_event(f"Applied mutations to {len(mutated_genome.nodes)} nodes")
-
-        # 6. Check for genome consistency
-        mutated_genome.remove_cycles()
 
         return mutated_genome
 
@@ -430,7 +362,9 @@ mutator = Mutator(breeder_llm, config=tuning_config)
 
         for node in nodes_snapshot:
             # Roll dice for this specific node
-            if random.random() < p_mutate:
+            rng = np.random.default_rng()
+            r = rng.random()
+            if r < p_mutate:
                 genome.evaluated = False
                 
                 mut_type = self._pick_from_cdf(gene_cdf)
@@ -673,7 +607,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
 
         elif style == "simplify":
             task = "Instruction Simplification. Rewrite the instruction to make it shorter, simpler, and easier to understand."
-
+            
             ex_1 = simplify_ex_1 if not is_end_node else simplify_end_ex_1
             ans_1 = simplify_ans_1 if not is_end_node else simplify_end_ans_1
 
@@ -684,7 +618,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             ans_3 = simplify_ans_3 if not is_end_node else simplify_end_ans_3
 
         elif style == "persona":
-            task = "Persona Injection. Rewrite the instruction by adding or refining an expert persona while preserving the original task."
+            task = "Persona Injection. Rewrite the instruction by adding or refining an expert persona while preserving the original task and maintaing similar tone."
 
             ex_1 = persona_ex_1 if not is_end_node else persona_end_ex_1
             ans_1 = persona_ans_1 if not is_end_node else persona_end_ans_1
@@ -719,38 +653,36 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             ex_3 = rephrase_ex_3 if not is_end_node else rephrase_end_ex_3
             ans_3 = rephrase_ans_3 if not is_end_node else rephrase_end_ans_3
 
-        end_rule = "5. The edited instruction must still require exactly one word as the final output." if is_end_node else ""
-        template = f"""<<start_of_turn>system
+        template = f"""<start_of_turn>system
 Task: {task}
 Rules:
-1. Output only the edited instruction as a single complete, natural-sounding sentence.
-2. Do not execute, solve, or answer the instruction.
-3. Preserve the original goal, constraints, and output format exactly.
-4. Do not introduce new requirements or objectives.
-{end_rule}
-<<end_of_turn>
-<<start_of_turn>user
+0. NEVER execute, solve, or answer the instruction.
+1. Do not introduce new requirements or objectives.
+2. The scope, constraints, and output format of the original instruction must be preserved.
+3. The edited instruction must be one or more complete sentences long.
+4. Output the edited instruction.<end_of_turn>
+<start_of_turn>user
 Instruction: {ex_1}<end_of_turn>
-<<start_of_turn>model
-{ans_1}
-<<end_of_turn>
-<<start_of_turn>user
+<start_of_turn>model
+{ans_1}<end_of_turn>
+<start_of_turn>user
 Instruction: {ex_2}<end_of_turn>
-<<start_of_turn>model
-{ans_2}
-<<end_of_turn>
-<<start_of_turn>user
+<start_of_turn>model
+{ans_2}<end_of_turn>
+<start_of_turn>user
 Instruction: {ex_3}<end_of_turn>
-<<start_of_turn>model
-{ans_3}
-<<end_of_turn>
-<<start_of_turn>user
+<start_of_turn>model
+{ans_3}<end_of_turn>
+<start_of_turn>user
 Instruction: {node.instruction}<end_of_turn>
-<<start_of_turn>model
-"""
+<start_of_turn>model
+Edited Instruction: """
         
-        # CRITICAL FIX: Temperature set to 0.8 to force genetic diversity
-        response: str = await self.llm.generate_text(template, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
+        response = ""
+        counter = 0
+        while len(response.split()) < 3 and counter < 7:
+            response: str = await self.llm.generate_text(template, max_tokens=256, temperature=(MUTATIONS_TEMPERATURE-counter*0.1))
+            counter += 1
         
         if response and len(response.split()) > 3:
             node.instruction = response.strip()
@@ -811,26 +743,27 @@ Constraint: You must output exactly ONE intermediate step using the strict forma
 [Step C] Name: {name2} | Instr: {inst2}<end_of_turn>
 <start_of_turn>model
 [Step B] Name:"""
-        
-        response: str = await self.llm.generate_text(bridge_prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
-        
+                
         # Robust Parsing
         try:
-            full_text = "Name:" + response 
-            name = full_text.split("Name:")[1].split("| Instr:")[0].strip()
-            instruction = full_text.split("Instr:")[1].strip()
-            
-            embedding = self.llm.get_embedding(instruction)
-            return PromptNode(name, instruction, embedding=embedding, innovation_number=-1)
+            instruction = ""
+            i= -1
+            while len(instruction) < 3 or i < 3:
+                response: str = await self.llm.generate_text(bridge_prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
+                full_text = "Name:" + response 
+                name = full_text.split("Name:")[1].split("| Instr:")[0].strip()
+                instruction = full_text.split("Instr:")[1].strip()
+                i = i + 1
+
+            if len(instruction) >= 3: 
+                embedding = self.llm.get_embedding(instruction)
+                return PromptNode(name, instruction, embedding=embedding, innovation_number=-1)
+            else:
+                return None
             
         except Exception as e:
             print(f"Bridge Parsing Failed: {e} with response: {response}\n")
-            
-            # Use a domain-agnostic cognitive instruction for the fallback to maintain fitness
-            fallback_instruction = "Review the deductions made so far and explicitly map out the logical dependencies required for the next step."
-            fallback_embedding = self.llm.get_embedding(fallback_instruction)
-            
-            return PromptNode("Logical_Bridge", fallback_instruction, embedding=fallback_embedding, innovation_number=-1)
+            return None
     
     async def _split_instructions(self, original_instruction: str, original_name: str) -> tuple[str, str, str, str]:
         """
