@@ -1,12 +1,13 @@
 import gc
 import os
+import re
 from typing import List, Dict, Any, Set, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import colorsys
-
-from Species.species import Species
+import pickle
+import glob
 
 # --- 1. Innovation Numbers Registry ---
 class SemanticRegistry:
@@ -584,18 +585,83 @@ class Plotter:
 # --- 3. History Utility ---
 class HistoryTracker:
     """
-    Maintains a structured history of all individuals.
-    This is crucial for debugging, telemetry, and understanding the evolutionary trajectory.
+    Maintains a structured history and handles rolling, multi-file checkpoints
+    so evolution can be rolled back to specific generations.
     """
-    def __init__(self):
-        self.history: list[tuple[list[Species], dict[str, tuple[float, float]]]] = [] # List of (Species List, Baseline Stats) per generation
+    def __init__(self, checkpoint_dir: str = "era_checkpoints"):
+        self.checkpoint_dir = checkpoint_dir
+        # Create the directory if it doesn't exist to keep your root folder clean
+        if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
+            
+        self.history: list[tuple[list['Species'], dict[str, tuple[float, float]]]] = []
 
-    def record_generation(self, species_list: List[Species], zero_shot_stats: Tuple[float, float], few_shots_stats: Tuple[float, float]):
+    def record_generation(self, species_list: List['Species'], zero_shot_stats: Dict, few_shots_stats: Dict):
         self.history.append((species_list, {
             "zero_shot": zero_shot_stats,
             "few_shot": few_shots_stats
         }))
 
+    def save_checkpoint(self, generation_idx: int, speciation_engine: 'SpeciationEngine', zero_shot_stats: Dict, few_shots_stats: Dict):
+        """
+        Saves a discrete state file for the specific generation.
+        """
+        temp_breeder = speciation_engine.breeder
+        speciation_engine.breeder = None 
+        
+        state = {
+            "generation_idx": generation_idx,
+            "speciation_engine": speciation_engine,
+            "zero_shot_stats": zero_shot_stats,
+            "few_shots_stats": few_shots_stats,
+            "history": self.history
+        }
+        
+        # Name the file explicitly by its generation
+        filepath = os.path.join(self.checkpoint_dir, f"era_checkpoint_gen_{generation_idx}.pkl")
+        temp_file = filepath + ".tmp"
+        
+        with open(temp_file, 'wb') as f:
+            pickle.dump(state, f)
+        os.replace(temp_file, filepath)
+        
+        speciation_engine.breeder = temp_breeder
+
+    def load_checkpoint(self) -> Dict[str, Any]:
+        """
+        Scans the checkpoint directory, finds the file with the highest generation 
+        number, and loads it.
+        """
+        if not os.path.exists(self.checkpoint_dir):
+            return None
+            
+        # Find all files matching the checkpoint pattern
+        search_pattern = os.path.join(self.checkpoint_dir, "era_checkpoint_gen_*.pkl")
+        checkpoint_files = glob.glob(search_pattern)
+        
+        if not checkpoint_files:
+            return None
+            
+        # Extract the integer from the filename to safely find the true maximum
+        def get_gen_number(filepath: str) -> int:
+            match = re.search(r'gen_(\d+)\.pkl$', filepath)
+            return int(match.group(1)) if match else -1
+
+        # Locate the file with the highest generation integer
+        latest_checkpoint = max(checkpoint_files, key=get_gen_number)
+        
+        print(f"📂 Found rollback checkpoints. Loading highest available state: {os.path.basename(latest_checkpoint)}")
+        
+        with open(latest_checkpoint, 'rb') as f:
+            state = pickle.load(f)
+            
+        # Truncate the loaded history array to match the loaded generation.
+        # This prevents phantom logs from deleted future generations from remaining in memory.
+        loaded_gen = state["generation_idx"]
+        self.history = state.get("history", [])[:loaded_gen]
+        
+        return state
+    
 # --- 4. Logging Utility ---
 def log_and_print(message: str, log_file: str = "Utils/Logs/generation_logger.md"):
     print(message)
@@ -634,7 +700,7 @@ def clear_log_file(log_file: str = "Utils/Logs/generation_logger.md"):
     with open(log_file, "w", encoding="utf-8") as f:
         pass
 
-def log_generation_to_markdown(species_list: List[Species], 
+def log_generation_to_markdown(species_list: List['Species'], 
                                best_accuracy: float, 
                                avg_accuracy: float, 
                                zero_shot_stats: Dict[str, Any], 

@@ -17,7 +17,7 @@ class SpeciesBreeder:
     def __init__(self, 
                  selector: RankBasedSelection, 
                  mutator: Mutator,
-                 elitism_ratio: float):
+                 elitism_ratio: float = 0.2):
         """
         Args:
             selector: The RankBasedSelection instance (singleton) to pick parents.
@@ -43,7 +43,7 @@ class SpeciesBreeder:
             raise ValueError("Cannot breed an empty species.")
 
         # 1. Sort current members by fitness (Descending: Highest is best)
-        sorted_members = sorted(current_species_members, key=lambda x: x.fitness, reverse=True)
+        sorted_members = sorted(current_species_members, key=lambda x: x.accuracy, reverse=True)
         
         next_generation: List[AgentGenome] = []
 
@@ -73,13 +73,17 @@ class SpeciesBreeder:
             if np.random.rand() > 0.25:
                 child = Crossover.create_offspring(p1, p2)
             else:
-                child = p1.copy() if p1.fitness >= p2.fitness else p2.copy()
+                child = p1.copy() if p1.accuracy >= p2.accuracy else p2.copy()
 
             # Mutate
             child = await self.mutator.mutate(child, current_generation=generation) 
 
             # Reset fitness
             child.fitness = 0.0 
+            child.accuracy = 0.0
+
+            # Evaluate
+            child.evaluated = False
 
             return child
 

@@ -42,7 +42,7 @@ class Species:
         if not self.members or not self.alive:
             return
             
-        current_max = max(m.fitness for m in self.members)
+        current_max = max(m.accuracy for m in self.members)
         if current_max > self.max_fitness_ever:
             self.max_fitness_ever = current_max
             self.generations_without_improvement = 0

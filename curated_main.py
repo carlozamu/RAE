@@ -12,7 +12,7 @@ from Genome.agent_genome import AgentGenome
 from Phenotype.phenotype import Phenotype
 from Mutations.mutator import Mutator
 from Data.clutrr import CLUTTRManager
-from Utils.utilities import HistoryTracker, log_generation_to_markdown, log_and_print, clear_log_file, Plotter, force_cleanup
+from Utils.utilities import log_generation_to_markdown, log_and_print, clear_log_file, Plotter, force_cleanup, HistoryTracker
 from Utils.LLM import LLM
 from Utils.baseline_exportable import evaluate_baseline_batch
 from ERA.init_pop import initialize_population
@@ -21,105 +21,134 @@ from Species.species_breeder import SpeciesBreeder
 from Species.speciation_engine import SpeciationEngine
 
 # --- Configuration ---
-MODEL_NAME = "google/gemma-3-1b-it" # Ensure this matches your local Ollama or vLLM setup
-BASE_URL = "http://localhost:8000"  # Ensure this matches your local Ollama or vLLM setup
+MODEL_NAME = "google/gemma-3-1b-it" 
+BASE_URL = "http://localhost:8000"  
 MAX_GENERATIONS = 50
 MAX_TIME_SECONDS = 3600 * 15 # 15 Hours
 TARGET_FITNESS = 50.0        # Higher is better (Max is 100.0)
 STARTING_PROMPT = "Task: State only the one kinship word (from the posible answers) that describes the family relationship."
 NUM_INDIVIDUALS = 50
-TARGET_SPECIES = 4
-#BATCH_SIZE = 50 # Number of problems each individual is evaluated on per generation
-SELECTION_PRESSURE = 1.5
-ELITISM_RATIO = 0.2
+TARGET_SPECIES = 5
 
+# --- Main Execution ---
 async def run_evolution():
     clear_log_file() # Start with a clean slate for logging
     log_and_print("\n--- Initializing ERA System ---")
     
-    # 1. Initialize API and Core Tools
+    # 1. Initialize API and Core Tools (Required for both new runs and rehydrated runs)
     llm_client = LLM(model_name=MODEL_NAME, base_url=BASE_URL) 
     fitness_evaluator = Fitness(llm=llm_client, use_reasoning=False)
     mutator = Mutator(breeder_llm_client=llm_client)
     dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
-    dataset = dataset_manager.get_or_create_curated_dataset() # This will either load a frozen dataset or create and freeze a new one
+    dataset = dataset_manager.get_or_create_curated_dataset() 
     
-    # 2. Setup the Micro and Macro Layers
-    # Micro-Layer: Parent selection and breeding
-    selector = RankBasedSelection(selection_pressure=SELECTION_PRESSURE)
-    breeder = SpeciesBreeder(selector=selector, mutator=mutator, elitism_ratio=ELITISM_RATIO)
+    # 2. Setup the Micro Layer (Instantiates fresh LLM sockets)
+    selector = RankBasedSelection()
+    breeder = SpeciesBreeder(selector=selector, mutator=mutator)
     plotter = Plotter()
     history_manager = HistoryTracker()
-    generation_idx = 0
     
-    # Macro-Layer: Ecology, speciation, and resource allocation
-    speciation_engine = SpeciationEngine(
-        breeder=breeder,
-        target_population_size=NUM_INDIVIDUALS,
-        target_species_count=TARGET_SPECIES,
-    )
-    
-    # 3. Population Initialization
-    log_and_print("🌱 Seeding Minimal Population...")
-    start_init_time = time.time()
-    first_gen = await initialize_population(
-        num_individuals=NUM_INDIVIDUALS, 
-        prompt=STARTING_PROMPT, 
-        problems_pool=dataset, 
-        llm_client=llm_client, 
-        fitness_evaluator=fitness_evaluator
-    )
-    log_and_print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
-    evaluated_population: list[AgentGenome] = [individual.genome for individual in first_gen]
-    speciation_engine._speciate_population(evaluated_population)
-    log_and_print("✅ Evolution Engine Ready.")
-    init_duration = time.time() - start_init_time
+    start_time = time.time()
 
-    # Baseline Evaluations for Generation 0
-    zero_shot_stats = await evaluate_baseline_batch(
-            baseline_name="Zero-Shot Baseline",
+    # ==========================================
+    # 3. STATE RECOVERY & MACRO LAYER SETUP
+    # ==========================================
+    checkpoint_state = history_manager.load_checkpoint()
+
+    if checkpoint_state:
+        log_and_print("\n🔄 Valid Checkpoint Found. Rehydrating State...")
+        
+        # Restore variables from disk
+        generation_idx = checkpoint_state["generation_idx"]
+        speciation_engine = checkpoint_state["speciation_engine"]
+        zero_shot_stats = checkpoint_state["zero_shot_stats"]
+        few_shots_stats = checkpoint_state["few_shots_stats"]
+        
+        # CRITICAL: Re-inject the newly instanced breeder (with active LLM client) into the restored engine
+        speciation_engine.breeder = breeder
+        
+        log_and_print(f"✅ Evolution successfully resumed. Targeting Generation {generation_idx}")
+        
+    else:
+        log_and_print("\n🌱 No Checkpoint Found. Seeding Minimal Population...")
+        generation_idx = 0
+        
+        # Initialize Macro-Layer from scratch
+        speciation_engine = SpeciationEngine(
+            breeder=breeder,
+            target_population_size=NUM_INDIVIDUALS,
+            target_species_count=TARGET_SPECIES,
+        )
+        
+        start_init_time = time.time()
+        first_gen = await initialize_population(
+            num_individuals=NUM_INDIVIDUALS, 
+            prompt=STARTING_PROMPT, 
+            problems_pool=dataset, 
+            llm_client=llm_client, 
+            fitness_evaluator=fitness_evaluator
+        )
+        log_and_print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
+        
+        evaluated_population: list[AgentGenome] = [individual.genome for individual in first_gen]
+        speciation_engine._speciate_population(evaluated_population)
+        log_and_print("✅ Evolution Engine Ready.")
+        init_duration = time.time() - start_init_time
+
+        # Baseline Evaluations for Generation 0
+        zero_shot_stats = await evaluate_baseline_batch(
+                baseline_name="Zero-Shot Baseline",
+                problem_batch=dataset,
+                llm_client=llm_client,
+                fitness=fitness_evaluator,
+                prompt_builder_func=CLUTTRManager.build_prompt_clutrr_baseline
+        )
+        few_shots_stats = await evaluate_baseline_batch(
+            baseline_name="Few-Shot Baseline",
             problem_batch=dataset,
             llm_client=llm_client,
             fitness=fitness_evaluator,
-            prompt_builder_func=CLUTTRManager.build_prompt_clutrr_baseline
-    )
-    few_shots_stats = await evaluate_baseline_batch(
-        baseline_name="Few-Shot Baseline",
-        problem_batch=dataset,
-        llm_client=llm_client,
-        fitness=fitness_evaluator,
-        prompt_builder_func=CLUTTRManager.build_prompt_clutrr_few_shots
-    )
+            prompt_builder_func=CLUTTRManager.build_prompt_clutrr_few_shots
+        )
 
-    # Log initial generation summary and plot
-    log_and_print(f"\n📊 Generation 0 Summary:")
-    log_and_print(f"Baseline Zero-Shot run in {zero_shot_stats['execution_time']:.2f}s with {zero_shot_stats['accuracy']:.2f}% accuracy & {zero_shot_stats['fitness']:.2f} fitness.")
-    log_and_print(f"Baseline Few-Shots run in {few_shots_stats['execution_time']:.2f}s with {few_shots_stats['accuracy']:.2f}% accuracy & {few_shots_stats['fitness']:.2f} fitness.")
-    log_and_print(f"ERA initialized in {init_duration:.2f}s. with {first_gen[0].genome.accuracy:.2f}% accuracy and {first_gen[0].genome.fitness:.2f} fitness.") 
-    log_and_print("-"*30)
-    history_manager.record_generation(speciation_engine.species_list, zero_shot_stats, few_shots_stats)
-    plot_path = plotter.plot_accuracy_vs_tokens(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
-    plot_2_path = plotter.plot_fitness_vs_complexity(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
-    plot_3_path = plotter.plot_accuracy_by_species(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
-    subprocess.Popen(['xdg-open', plot_path])
-    subprocess.Popen(['xdg-open', plot_2_path]) 
-    subprocess.Popen(['xdg-open', plot_3_path])
+        # Log initial generation summary and plot
+        log_and_print(f"\n📊 Generation 0 Summary:")
+        log_and_print(f"Baseline Zero-Shot run in {zero_shot_stats['execution_time']:.2f}s with {zero_shot_stats['accuracy']:.2f}% accuracy & {zero_shot_stats['fitness']:.2f} fitness.")
+        log_and_print(f"Baseline Few-Shots run in {few_shots_stats['execution_time']:.2f}s with {few_shots_stats['accuracy']:.2f}% accuracy & {few_shots_stats['fitness']:.2f} fitness.")
+        log_and_print(f"ERA initialized in {init_duration:.2f}s. with {first_gen[0].genome.accuracy:.2f}% accuracy and {first_gen[0].genome.fitness:.2f} fitness.") 
+        log_and_print("-" * 30)
+        
+        history_manager.record_generation(speciation_engine.species_list, zero_shot_stats, few_shots_stats)
+        
+        plot_path = plotter.plot_accuracy_vs_tokens(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
+        plot_2_path = plotter.plot_fitness_vs_complexity(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
+        plot_3_path = plotter.plot_accuracy_by_species(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
+        subprocess.Popen(['xdg-open', plot_path])
+        subprocess.Popen(['xdg-open', plot_2_path]) 
+        subprocess.Popen(['xdg-open', plot_3_path])
+        
+        # Save Generation 0 to disk before entering loop
+        generation_idx = 1
+        history_manager.save_checkpoint(generation_idx, speciation_engine, zero_shot_stats, few_shots_stats)
 
-    # 4. Main Evolution Loop
+    # ==========================================
+    # 4. MAIN EVOLUTION LOOP
+    # ==========================================
     log_and_print("\n🚀 Starting Evolution Loop...")
-    start_time = time.time()
 
-    while generation_idx < MAX_GENERATIONS:
+    while generation_idx <= MAX_GENERATIONS:
         gen_x_starting_time = time.time()
+        
         # A. THE GENETIC STEP (Macro + Micro Layers)
-        log_and_print(f"🧬 Speciating and Breeding Generation {generation_idx + 1}...")
+        log_and_print(f"\n🧬 Speciating and Breeding Generation {generation_idx}...")
         start_breed_time = time.time()
         unevaluated_next_gen_genomes = await speciation_engine.step_generation(generation=generation_idx)
         breed_duration = time.time() - start_breed_time
         log_and_print(f"⏱️ Breeding completed in {breed_duration:.2f} seconds. Generated {len(unevaluated_next_gen_genomes)} offspring.")
+        
         unevaluated_next_gen: list[Phenotype] = [Phenotype(genome=g, llm_client=llm_client) for g in unevaluated_next_gen_genomes]
         active_species_count = sum(+1 for s in speciation_engine.species_list if s.alive)
-        log_and_print(f"📊 Active Species count for generation {generation_idx + 1}: {active_species_count}")
+        log_and_print(f"📊 Active Species count for generation {generation_idx}: {active_species_count}")
         log_and_print(f"🌡️ Current Compatibility Threshold: {speciation_engine.compatibility_threshold:.2f}")
 
         # B. THE EVALUATION STEP
@@ -128,12 +157,11 @@ async def run_evolution():
         await fitness_evaluator.evaluate_population(unevaluated_next_gen, dataset)
         eval_duration = time.time() - start_eval_time
         
-        # D. Prepare for next iteration
+        # C. PREPARE FOR NEXT ITERATION
         evaluated_population: list[AgentGenome] = [individual.genome for individual in unevaluated_next_gen]
-        speciation_engine._speciate_population(evaluated_population) # Speciate the population for the logs
-        generation_idx += 1 # Increment generation counter
+        speciation_engine._speciate_population(evaluated_population) 
 
-        # E. Logging and Analytics for the Current (Evaluated) Generation
+        # D. LOGGING & ANALYTICS
         best_accuracy = fitness_evaluator.best_accuracy
         avg_accuracy = fitness_evaluator.avg_accuracy
         best_fit = log_generation_to_markdown(
@@ -151,9 +179,9 @@ async def run_evolution():
         log_and_print(f"ERA run in {eval_duration:.2f}s. with {best_accuracy:.2f}% accuracy, {best_fit:.2f} best fitness.") 
         gen_x_duration = time.time() - gen_x_starting_time
         log_and_print(f"⏱️ Generation {generation_idx} completed in {gen_x_duration:.2f} seconds.")
-        log_and_print("-"*30)
+        log_and_print("-" * 30)
 
-        # F. Plot Generation for visual analysis
+        # E. PLOTTING
         history_manager.record_generation(speciation_engine.species_list, zero_shot_stats, few_shots_stats)
         plot_path = plotter.plot_accuracy_vs_tokens(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
         plot_2_path = plotter.plot_fitness_vs_complexity(speciation_engine.species_list, zero_shot_stats, few_shots_stats, generation_idx)
@@ -162,7 +190,13 @@ async def run_evolution():
         subprocess.Popen(['xdg-open', plot_2_path]) 
         subprocess.Popen(['xdg-open', plot_3_path])
 
-        # G. Stop Criteria Checks
+        # F. CHECKPOINTING 
+        # We save the state mapping to the NEXT generation so a crash or stop 
+        # picks up immediately without repeating work.
+        generation_idx += 1
+        history_manager.save_checkpoint(generation_idx, speciation_engine, zero_shot_stats, few_shots_stats)
+
+        # G. STOP CRITERIA CHECKS
         if best_fit >= TARGET_FITNESS:
             log_and_print(f"\n🏆 SUCCESS: Target Fitness ({TARGET_FITNESS}) reached! Final Best: {best_fit:.4f}")
             break

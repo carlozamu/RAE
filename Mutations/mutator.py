@@ -4,7 +4,6 @@ import numpy as np
 import random
 from Genome.agent_genome import AgentGenome
 from Gene.gene import PromptNode
-from Gene.connection import Connection
 from Utils.utilities import SemanticRegistry
 #from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
@@ -88,8 +87,8 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         else:
             # Shift the exponent so Gen 2 = 0
             decay_steps = generation - 1 
-            p_arch = max(0.5, 0.85 * (0.95 ** decay_steps))
-            p_gene = max(0.3, 0.80 * (0.95 ** decay_steps), (0.8/node_count))
+            p_arch = max(0.33, 0.80 * (0.95 ** decay_steps))
+            p_gene = max(0.25, 0.80 * (0.95 ** decay_steps), (0.75/node_count))
 
         # --- 2. Architectural Probabilities ---
         max_C = (node_count * (node_count - 1)) / 2.0
@@ -208,7 +207,7 @@ mutator = Mutator(breeder_llm, config=tuning_config)
 
     async def _handle_add_node(self, genome: AgentGenome):
         enabled_conns = [c for c in genome.connections.values() if c.enabled]
-        if not enabled_conns: return
+        if not enabled_conns or len(genome.nodes) > 4: return
 
         connection = random.choice(enabled_conns)
         in_node = genome.nodes[connection.in_node]

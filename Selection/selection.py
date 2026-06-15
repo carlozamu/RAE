@@ -37,7 +37,7 @@ class RankBasedSelection(SelectionStrategy):
     probabilities linearly based on rank rather than raw score.
     """
     
-    def __init__(self, selection_pressure: float = 1.5):
+    def __init__(self, selection_pressure: float = 1.6):
         """
         Args:
             selection_pressure: Controls the statistical bias towards top performers.
@@ -53,7 +53,7 @@ class RankBasedSelection(SelectionStrategy):
         self._validate_population(population)
         
         # Sort descending: Highest fitness = index 0 (Rank 1)
-        sorted_pop = sorted(population, key=lambda x: x.fitness, reverse=True)
+        sorted_pop = sorted(population, key=lambda x: x.accuracy, reverse=True)
         n = len(sorted_pop)
         
         # Edge case: If population is 1, just return clones of it

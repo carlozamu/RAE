@@ -3,6 +3,8 @@ Speciation Engine Module.
 Handles the macro-level ecology of the Reasoning Agent Engine (RAE).
 Manages dynamic thresholding, Explicit Fitness Sharing, and resource allocation.
 """
+from collections import defaultdict
+import random
 from typing import List
 from Genome.agent_genome import AgentGenome
 from Species.species import Species
@@ -54,6 +56,7 @@ class SpeciationEngine:
             s.update_stagnation()
             if s.generations_without_improvement >= self.dropoff_age and s.id != 0: # Never kill the Primordial Soup
                 s.alive = False # Kill instead of removing
+                s.generations_without_improvement = 0
                 stagnant_this_turn.append(s)
             else:
                 mature_active.append(s)
@@ -72,11 +75,46 @@ class SpeciationEngine:
                 print(f"⚠️ Failsafe Triggered: Spared Species {s.id} from mass extinction.")
 
         # --- 3. GLOBAL ELITISM ---
-        # Only pull members from ALIVE species
-        all_global_members = [member for s in self.species_list if s.alive for member in s.members]
-        all_global_members.sort(key=lambda x: (x.accuracy, x.fitness), reverse=True)
-        
-        global_elites = all_global_members[:3]
+        # Extraction and Context Preservation
+        pool = []
+        for sp_idx, species in enumerate(self.species_list):
+            if species.alive:
+                # Calculate the size of the current species
+                current_species_size = len(species.members)
+                for member in species.members:
+                    pool.append({
+                        "member": member, 
+                        "species_id": sp_idx, 
+                        "species_size": current_species_size # Inject size metadata
+                    })
+
+        # Quaternary Constraint: Randomization
+        random.shuffle(pool)
+
+        # Grouping by Accuracy and Species
+        tiers = defaultdict(list)
+        for item in pool:
+            tiers[(item["member"].accuracy, item["species_id"])].append(item)
+
+        # Intra-Species Fitness Ranking (Diversity Rank)
+        for group in tiers.values():
+            group.sort(key=lambda x: x["member"].fitness, reverse=True)
+            for rank, item in enumerate(group):
+                item["diversity_rank"] = rank
+
+        # The Updated Multi-Key Sort
+        pool.sort(
+            key=lambda x: (
+                x["member"].accuracy,      # 1st: Maximize accuracy
+                -x["diversity_rank"],      # 2nd: Maximize diversity (Rank 0 beats Rank 1)
+                -x["species_size"],        # 3rd: NEW - Prioritize smaller species 
+                x["member"].fitness        # 4th: Maximize fitness
+            ),
+            reverse=True
+        )
+
+        # Elite Extraction
+        global_elites = [item["member"] for item in pool[:3]]
         num_elites = len(global_elites)
 
         # --- 4. EXPLICIT FITNESS SHARING ---
@@ -104,8 +142,7 @@ class SpeciationEngine:
                 target_size = species_target_sizes.get(s.id, 0)
                 if target_size == 0 and s.id != 0:
                     s.alive = False # Died out due to lack of resources
-                else:
-                    s.update_representative()
+            s.update_representative()
 
         return next_generation_global
 
