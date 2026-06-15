@@ -32,9 +32,6 @@ TARGET_SPECIES = 5
 
 # --- Main Execution ---
 async def run_evolution():
-    clear_log_file() # Start with a clean slate for logging
-    log_and_print("\n--- Initializing ERA System ---")
-    
     # 1. Initialize API and Core Tools (Required for both new runs and rehydrated runs)
     llm_client = LLM(model_name=MODEL_NAME, base_url=BASE_URL) 
     fitness_evaluator = Fitness(llm=llm_client, use_reasoning=False)
@@ -70,7 +67,10 @@ async def run_evolution():
         log_and_print(f"✅ Evolution successfully resumed. Targeting Generation {generation_idx}")
         
     else:
+        log_and_print("\n--- Initializing ERA System ---")
         log_and_print("\n🌱 No Checkpoint Found. Seeding Minimal Population...")
+        clear_log_file() # Start with a clean slate for logging
+    
         generation_idx = 0
         
         # Initialize Macro-Layer from scratch

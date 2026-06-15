@@ -8,7 +8,7 @@ from Utils.utilities import SemanticRegistry
 #from Utils.MarkDownLogger import md_logger
 from Utils.LLM import LLM
 
-MUTATIONS_TEMPERATURE = 1.0
+MUTATIONS_TEMPERATURE = 0.5
 
 class MutType:
     # Architectural (Global Topology)
@@ -72,78 +72,54 @@ mutator = Mutator(breeder_llm, config=tuning_config)
     @staticmethod
     def get_dynamic_config(generation: int, node_count: int, connections_count: int) -> dict:
         """
-        Calculates mutation probabilities using a strict mathematical 'Phase Shift' strategy.
-        Architectural mutations act as a self-correcting thermostat centered at N=4 nodes,
-        with a hard cap at N=6.
-        Gene mutations shift from early Cognitive Structuring to late Linguistic Compression.
+        Calculates Macro-Layer mutation probabilities (Cooling schedule & Topology).
+        Content mutation probabilities are now calculated dynamically per-node.
         """
         
         # --- 1. Global Rate Calculations ---
-        # Architectural Decay: Cools down global topology changes over generations
-        # Architectural Decay: Cools down global topology changes smoothly
         if generation < 2:
             p_arch = 0.0 
             p_gene = 0.8 
         else:
-            # Shift the exponent so Gen 2 = 0
-            decay_steps = generation - 1 
-            p_arch = max(0.33, 0.80 * (0.95 ** decay_steps))
-            p_gene = max(0.25, 0.80 * (0.95 ** decay_steps), (0.75/node_count))
+            decay_steps = max(0, generation - 1)
+            p_arch = max(0.25, 0.75 * (0.95 ** decay_steps))
+            p_gene = max(0.30, 0.85 * (0.95 ** decay_steps))
 
-        # --- 2. Architectural Probabilities ---
-        max_C = (node_count * (node_count - 1)) / 2.0
-        min_C = node_count -1
-        remove_conn = (connections_count - min_C) / max(1.0, (max_C - min_C))
-         
-        #remove_conn = (connections_count - (node_count - 1)) / max(1, max(0, node_count-3)*3.0)
-
-        add_node = 0.0
-        if node_count == 2:
-            add_node = 0.7
-        elif node_count == 3:
-            add_node = 0.6
-        elif node_count == 4:
-            add_node = 0.5
-        elif node_count >= 5:
-            add_node = 0.0
-        remove_node = 1.0 - add_node
-        add_conn = 1.0 - remove_conn
+        # --- 2. Architectural Probabilities (Strict Capping & Sparsity) ---
+        if node_count >= 5:
+            p_add_node = 0.0
+        else:
+            p_add_node = 0.6 * (0.5 ** (max(0, node_count - 2)))
+            
+        p_remove_node = 1.0 - p_add_node
 
         if node_count <= 1:
-            p_add_node = 0.0
-            p_remove_node = 0.0
-            p_add_conn = add_conn
-            p_remove_conn = remove_conn 
+            p_add_conn = 1.0
+            p_remove_conn = 0.0
         else:
-            p_add_node = add_node * 0.65
-            p_remove_node = remove_node * 0.65
-            p_add_conn = add_conn * 0.35
-            p_remove_conn = remove_conn * 0.35
+            max_C = (node_count * (node_count - 1)) / 2.0
+            min_C = node_count - 1
+            saturation = (connections_count - min_C) / max(1.0, (max_C - min_C))
+            
+            p_remove_conn = saturation * 0.75
+            p_add_conn = (1.0 - saturation) * 0.25
+
+        arch_total_nodes = p_add_node + p_remove_node
+        arch_total_conns = p_add_conn + p_remove_conn
         
-        # --- 3. Gene Probabilities (Structuring -> Compression) ---
-        split = max(0.0, 0.4 - node_count * 0.1)
-        others = (1.0 - split) / 5 
+        arch_probs = {
+            MutType.ARCH_ADD_NODE:    (p_add_node / arch_total_nodes) * 0.6,
+            MutType.ARCH_REMOVE_NODE: (p_remove_node / arch_total_nodes) * 0.6,
+            MutType.ARCH_ADD_CONN:    (p_add_conn / max(1e-5, arch_total_conns)) * 0.4,
+            MutType.ARCH_REMOVE_CONN: (p_remove_conn / max(1e-5, arch_total_conns)) * 0.4,
+        }
 
         return {
             "p_architectural_event": p_arch,
             "p_mutate_node": p_gene,
-            
-            "arch_probs": {
-                MutType.ARCH_ADD_NODE:    p_add_node,
-                MutType.ARCH_REMOVE_NODE: p_remove_node,
-                MutType.ARCH_ADD_CONN:    p_add_conn,
-                MutType.ARCH_REMOVE_CONN: p_remove_conn,
-            },
-            
-            "gene_probs": {
-                MutType.GENE_SPLIT:            split,
-                MutType.GENE_INJECT_REASONING: others,
-                MutType.GENE_EXPAND:           others,
-                MutType.GENE_ADD_PERSONA:      others,
-                MutType.GENE_REFORMULATE:      others,
-                MutType.GENE_SIMPLIFY:         others
-            }
+            "arch_probs": arch_probs,
         }
+    
     def __init__(self, breeder_llm_client: LLM, default_config=None):
         """
         :param breeder_llm_client: Wrapper for the LLM API.
@@ -206,138 +182,134 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         return ancestors
 
     async def _handle_add_node(self, genome: AgentGenome):
-        enabled_conns = [c for c in genome.connections.values() if c.enabled]
-        if not enabled_conns or len(genome.nodes) > 4: return
+        """
+        Delegates node addition to the genome's safe edge-splitting transaction.
+        """
+        enabled_conns = list(genome.connections.values())
+        if not enabled_conns: return
 
-        connection = random.choice(enabled_conns)
-        in_node = genome.nodes[connection.in_node]
-        out_node = genome.nodes[connection.out_node]
+        # 1. Select a random target connection to split
+        target_conn = random.choice(enabled_conns)
+        in_node = genome.nodes[target_conn.in_node]
+        out_node = genome.nodes[target_conn.out_node]
 
+        # 2. Generate the bridging logic
         new_node = await self._generate_new_node(in_node.name, in_node.instruction, out_node.name, out_node.instruction)
         if new_node is None: return
         
-        # Inject structural ID assignment using your registry layout
-        # Mocking an innovation sequence fallback if registry isn't assigned
-        new_id = self.semantic_registry.get_or_create_innovation_number(new_node.embedding, set(genome.nodes.keys()), new_node.instruction) if self.semantic_registry else random.randint(10000, 99999)
+        # 3. Assign semantic innovation number
+        new_id = self.semantic_registry.get_or_create_innovation_number(
+            new_node.embedding, set(genome.nodes.keys()), new_node.instruction
+        ) if self.semantic_registry else random.randint(10000, 99999)
+        
         new_node.innovation_number = new_id
         
-        genome.add_node(new_node)
-        connection.enabled = False
-        
-        genome.add_connection(connection.in_node, new_node.innovation_number)
-        genome.add_connection(new_node.innovation_number, connection.out_node)
-
-        return
+        # 4. Execute atomic split (AgentGenome handles all internal wiring safely)
+        genome.add_node_safely(new_node, target_conn.innovation_number)
 
     def _handle_remove_node(self, genome: AgentGenome):
+        """
+        Executes a node purge, allowing the genome to compute the Cartesian bypass.
+        Implements a strict rollback if the bypass creates a dead-end.
+        """
         removable_nodes = [
             nid for nid in genome.nodes.keys() 
             if nid not in (genome.start_node_innovation_number, genome.end_node_innovation_number)
         ]
         if not removable_nodes: return
         
-        for node_id in removable_nodes:
-            node_backup = genome.nodes[node_id].copy()
-            
-            incoming_nodes = [c.in_node for c in genome.connections.values() if c.out_node == node_id and c.enabled]
-            outgoing_nodes = [c.out_node for c in genome.connections.values() if c.in_node == node_id and c.enabled]
+        # We only attempt one random removal per mutation event
+        node_id = random.choice(removable_nodes)
+        
+        # 1. Execute the safe bypass transaction
+        transaction = genome.remove_node_safely(node_id)
+        if not transaction["removed_node"]:
+            return
 
-            removed_conns = genome.remove_node_safely(node_id)
+        # 2. Verify DAG Invariants 
+        if not genome.verify_all_paths_lead_to_end():
+            # ROLLBACK: The Cartesian bypass broke reachability
             
-            new_conn_ids = []
-            if incoming_nodes and outgoing_nodes:
-                max_len = max(len(incoming_nodes), len(outgoing_nodes))
-                for i in range(max_len):
-                    u = incoming_nodes[i % len(incoming_nodes)]
-                    v = outgoing_nodes[i % len(outgoing_nodes)]
-                    c = genome.add_connection(u, v)
-                    new_conn_ids.append(c.innovation_number)
-                    
-            if not genome.verify_all_paths_lead_to_end():
-                # Rollback transaction cleanly
-                for cid in new_conn_ids:
-                    genome.remove_connection(cid)
-                genome.add_node(node_backup)
-                for c_id, conn in removed_conns.items():
-                    genome.connections[c_id] = conn
-            else:
-                return
-
-        return
+            # A. Purge the new bypass connections
+            for new_c_id in transaction["added_connections"].keys():
+                genome.connections.pop(new_c_id, None)
+                
+            # B. Restore the original node
+            genome.nodes[node_id] = transaction["removed_node"]
+            
+            # C. Restore the original load-bearing connections
+            for old_c_id, old_conn in transaction["removed_connections"].items():
+                genome.connections[old_c_id] = old_conn
 
     def _handle_add_connection(self, genome: AgentGenome):
+        """
+        Brute-force attempts to add connections, letting the genome's strict
+        cycle-detection and boundary constraints filter invalid pairs.
+        """
         if len(genome.nodes) < 3: return
-        possible_inputs = [n for n in genome.nodes.keys() if n != genome.end_node_innovation_number]
+        
+        possible_inputs = list(genome.nodes.keys())
         random.shuffle(possible_inputs)
 
         for candidate in possible_inputs:
-            ancestors = self._get_ancestors(genome, candidate)
-            existing_targets = {c.out_node for c in genome.connections.values() if c.in_node == candidate}
+            possible_targets = [n for n in genome.nodes.keys() if n != candidate]
+            random.shuffle(possible_targets)
             
-            valid_targets = [
-                n for n in genome.nodes.keys()
-                if n != genome.start_node_innovation_number
-                and n != candidate
-                and n not in ancestors
-                and n not in existing_targets
-            ]
-            
-            if valid_targets:
-                target = random.choice(valid_targets)
-                genome.add_connection(candidate, target)
-                return
+            for target in possible_targets:
+                # AgentGenome automatically rejects cycles and boundary violations
+                new_conn = genome.add_connection_safely(candidate, target)
+                
+                if new_conn is not None:
+                    # A valid connection was successfully created
+                    return
 
     def _handle_remove_connection(self, genome: AgentGenome):
-        active_connections = [c for c in genome.connections.values() if c.enabled]
+        """
+        Delegates connection removal to the genome's transactional method.
+        """
+        active_connections = list(genome.connections.keys())
+        # Minimal tree check: V = E + 1 for a single path graph.
         if len(active_connections) < len(genome.nodes): return
 
         random.shuffle(active_connections)
-        for target_conn in active_connections:
-            target_conn.enabled = False
-            if genome.verify_all_paths_lead_to_end():
+        for target_conn_id in active_connections:
+            # The genome automatically verifies and reverts if reachability breaks
+            success = genome.remove_connection_safely(target_conn_id)
+            if success:
                 return
-            else:
-                target_conn.enabled = True
 
 # ------- Main Mutation Logic -------
-    async def mutate(self, genome: AgentGenome, current_generation:int=0) -> AgentGenome:
+    async def mutate(self, genome: AgentGenome, current_generation: int = 0) -> AgentGenome:
         """
         Main entry point. Returns a mutated CLONE of the genome.
-        
-        :param runtime_config: Optional dict. If provided, it merges with defaults 
-                               ONLY for this single execution (e.g. for simulated annealing).
         """
-        # 1. Get Configs
         enabled_connections = [c for c in genome.connections.values() if c.enabled]
-        current_config = self.get_dynamic_config(generation=current_generation, node_count=len(genome.nodes), connections_count=len(enabled_connections))
+        total_nodes = len(genome.nodes)
+        
+        current_config = self.get_dynamic_config(
+            generation=current_generation, 
+            node_count=total_nodes, 
+            connections_count=len(enabled_connections)
+        )
 
-        # 2. Extract active probabilities
         p_arch_event = current_config["p_architectural_event"]
         p_mutate_node = current_config["p_mutate_node"]
-        
-        # Build CDFs based on the (potentially dynamic) weights
         arch_cdf = self._build_cdf(current_config["arch_probs"])
-        gene_cdf = self._build_cdf(current_config["gene_probs"])
 
-        # 3. Create Offspring (Deep Copy)
         mutated_genome = genome.copy()
         rng = np.random.default_rng()
-        random_number = rng.random()
 
-        # 4. Global Architectural Mutation (Single Event)
-        if random_number < p_arch_event:
+        # 1. Global Architectural Mutation (Single Event)
+        if rng.random() < p_arch_event:
             mutation_type = self._pick_from_cdf(arch_cdf)
             if mutation_type:
                 await self._apply_global_mutation(mutated_genome, mutation_type)
                 mutated_genome.evaluated = False
-                #md_logger.log_event(f"Applied mutation {mutation_type}")
 
-        # 5. Gene Level Mutations (Per Node Check)
-        await self._apply_gene_mutations(mutated_genome, p_mutate_node, gene_cdf)
-        #md_logger.log_event(f"Applied mutations to {len(mutated_genome.nodes)} nodes")
+        # 2. Gene Level Mutations (Evaluated and dynamically weighted per node)
+        await self._apply_gene_mutations(mutated_genome, p_mutate_node, total_nodes)
 
         return mutated_genome
-
     # --- Internal Logic ---
     async def _apply_global_mutation(self, genome: AgentGenome, mutation_type: MutType):
         """Dispatches architectural mutations."""
@@ -352,98 +324,151 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         elif mutation_type == MutType.ARCH_REMOVE_CONN:
             self._handle_remove_connection(genome)
      
-    async def _apply_gene_mutations(self, genome: AgentGenome, p_mutate, gene_cdf):
-        """Iterates over all nodes and applies mutations based on probability."""
-        
-        # CRITICAL: Snapshot values because _handle_split adds new nodes to the dict
-        # We cannot iterate over genome.nodes directly while modifying it.
+    async def _apply_gene_mutations(self, genome: AgentGenome, p_mutate: float, total_nodes: int):
+        """
+        Iterates over all nodes and applies mutations based on a dynamically 
+        calculated probability distribution specific to EACH node's string length.
+        """
         nodes_snapshot = list(genome.nodes.keys())
+        rng = np.random.default_rng()
 
-        for node in nodes_snapshot:
-            # Roll dice for this specific node
-            rng = np.random.default_rng()
-            r = rng.random()
-            if r < p_mutate:
-                genome.evaluated = False
+        for node_id in nodes_snapshot:
+            if rng.random() < p_mutate:
+                node = genome.nodes[node_id]
                 
-                mut_type = self._pick_from_cdf(gene_cdf)
+                # --- Micro-Layer Distribution Calculation ---
+                instruction_length_tokens = len(node.instruction) // 4
                 
+                # Normalize length to a [0, 1] scale (assuming 150 tokens is "highly bloated")
+                bloat_factor = min(1.0, instruction_length_tokens / 150.0)
+                
+                # 1. Split Logic: Requires both high bloat AND graph space
+                # Do not attempt to split tiny instructions (< 40 chars)
+                if total_nodes >= 5 or instruction_length_tokens < 30:
+                    split_prob = 0.0
+                else:
+                    # Approaches 35% chance as the node gets extremely bloated
+                    split_prob = bloat_factor * 0.35 
+
+                # 2. Simplify vs Expand Slider
+                # At 0 bloat, Expand is 45%, Simplify is 5%.
+                # At 1.0 bloat, Simplify is 50%, Expand is 0%.
+                simplify_prob = 0.05 + (0.45 * bloat_factor)
+                expand_prob = max(0.0, 0.45 - (0.45 * bloat_factor))
+
+                # 3. Distribute remaining probability evenly among stylistic mutations
+                remaining = max(0.0, 1.0 - (split_prob + simplify_prob + expand_prob))
+                others_prob = remaining / 3.0
+
+                node_gene_probs = {
+                    MutType.GENE_SPLIT:            split_prob,
+                    MutType.GENE_SIMPLIFY:         simplify_prob,
+                    MutType.GENE_EXPAND:           expand_prob,
+                    MutType.GENE_INJECT_REASONING: others_prob*0.35,
+                    MutType.GENE_ADD_PERSONA:      others_prob*0.25,
+                    MutType.GENE_REFORMULATE:      others_prob*0.40
+                }
+                
+                # Build CDF specifically for this node and select mutation
+                node_cdf = self._build_cdf(node_gene_probs)
+                mut_type = self._pick_from_cdf(node_cdf)
+                
+                # --- Execute Mutation ---
                 if mut_type == MutType.GENE_SPLIT:
-                    await self._handle_split(genome, node)
+                    await self._handle_split(genome, node_id)
                 elif mut_type == MutType.GENE_EXPAND:
-                    await self._handle_content_mutation(genome, node, "expand")
+                    await self._handle_content_mutation(genome, node_id, "expand")
                 elif mut_type == MutType.GENE_ADD_PERSONA:
-                    await self._handle_content_mutation(genome, node, "persona")
+                    await self._handle_content_mutation(genome, node_id, "persona")
                 elif mut_type == MutType.GENE_INJECT_REASONING:
-                    await self._handle_content_mutation(genome, node, "reasoning")
+                    await self._handle_content_mutation(genome, node_id, "reasoning")
                 elif mut_type == MutType.GENE_SIMPLIFY:
-                    await self._handle_content_mutation(genome, node, "simplify")
+                    await self._handle_content_mutation(genome, node_id, "simplify")
                 elif mut_type == MutType.GENE_REFORMULATE:
-                    await self._handle_content_mutation(genome, node, "reformulate")
+                    await self._handle_content_mutation(genome, node_id, "reformulate")
 
     # --- Specific Mutation Handlers ---
 
     async def _handle_split(self, genome: AgentGenome, target_node: int):
         """
-        Hybrid Mutation: Splits one node into two sequential nodes.
-        Strategy: Cell Division (Preserve A, Create B, Link A->B)
+        Hybrid Mutation: Splits one node into two sequential nodes (A -> B).
+        Executes as an atomic database transaction with full graph rollback capabilities.
         """
-        #print(f"Splitting node: {genome.nodes[target_node].name}")
-
-        if len(genome.nodes) >= 5:
-            return
+        if len(genome.nodes) >= 5: return
         
-        # 1. Ask LLM to split content
-        name1, prompt1, name2, prompt2 = await self._split_instructions(genome.nodes[target_node].instruction, genome.nodes[target_node].name)
+        # 1. Ask LLM to generate the split instructions
+        name1, prompt1, name2, prompt2 = await self._split_instructions(
+            genome.nodes[target_node].instruction, 
+            genome.nodes[target_node].name
+        )
 
-        # 2. Modify Original Node (A)
-        # We keep the ID and Incoming Connections intact.
-        genome.nodes[target_node].instruction = prompt1
-        genome.nodes[target_node].name = name1
-        genome.nodes[target_node].embedding = self.llm.get_embedding(prompt1)
-        innovation_number1 =self.semantic_registry.get_or_create_innovation_number(genome.nodes[target_node].embedding, set(genome.nodes.keys()), genome.nodes[target_node].instruction, target_node)
-        genome.nodes[target_node].innovation_number = innovation_number1
-        if innovation_number1 != target_node:
-            node = genome.nodes.pop(target_node)
-            genome.add_node(node) # Update the node in the genome with new content and embedding
-        
-        new_gene = genome.nodes[innovation_number1].copy()
-        new_gene.name = name2
-        new_gene.instruction = prompt2
-        new_gene.embedding = self.llm.get_embedding(prompt2)
-        innovation_number2 =self.semantic_registry.get_or_create_innovation_number(new_gene.embedding, set(genome.nodes.keys()), new_gene.instruction)
-        new_gene.innovation_number = innovation_number2
-        genome.add_node(new_gene)
+        # 2. CREATE TRANSACTION BACKUP
+        # Deep copy all routing data to survive catastrophic verification failures
+        backup_nodes = {k: v.copy() for k, v in genome.nodes.items()}
+        backup_connections = {k: v.copy() for k, v in genome.connections.items()}
+        backup_start = genome.start_node_innovation_number
+        backup_end = genome.end_node_innovation_number
 
-        # 3. Manage Connections
-        # We need to find all connections LEAVING the target_node and move them to B.
+        try:
+            # 3. Formulate Node A (Modified Original)
+            node_a = genome.nodes[target_node]
+            node_a.instruction = prompt1
+            node_a.name = name1
+            node_a.embedding = self.llm.get_embedding(prompt1)
+            
+            inv_a = self.semantic_registry.get_or_create_innovation_number(
+                node_a.embedding, set(genome.nodes.keys()), node_a.instruction, target_node
+            ) if self.semantic_registry else random.randint(10000, 99999)
 
-        for conn in list(genome.connections.values()):            
-            # If connection goes OUT from A -> [Next]
-            if conn.in_node == target_node and innovation_number2 != target_node: # Avoid self loops in case the innovation number did't change
-                genome.add_connection(innovation_number2, conn.out_node) # move to new node B
-                del genome.connections[f"{target_node}.{conn.out_node}"] # Remove old connection
-                #print(f"Addedd connection {innovation_number2} -> {conn.out_node} (moved from {target_node} -> {conn.out_node})")
-                continue
+            # 4. Formulate Node B (New Node)
+            node_b = PromptNode(name=name2, instruction=prompt2)
+            node_b.embedding = self.llm.get_embedding(prompt2)
+            
+            inv_b = self.semantic_registry.get_or_create_innovation_number(
+                node_b.embedding, set(genome.nodes.keys()), node_b.instruction
+            ) if self.semantic_registry else random.randint(10000, 99999)
+            
+            node_b.innovation_number = inv_b
 
-            # If connection goes IN from [Prev] -> A
-            elif conn.out_node == target_node and innovation_number1 != target_node: # Avoid self loops in case the innovation number did't change
-                genome.add_connection(conn.in_node, innovation_number1) # Re-add with updated key
-                del genome.connections[f"{conn.in_node}.{target_node}"] # Remove old connection
-                #print(f"Addedd connection {conn.in_node} -> {innovation_number1} (moved from {conn.in_node} -> {target_node})")
-                continue
+            # 5. Execute Topological Shift
+            # If Node A's ID changed semantically, update its dictionary key
+            if inv_a != target_node:
+                node_a.innovation_number = inv_a
+                genome.nodes[inv_a] = genome.nodes.pop(target_node)
+            
+            genome.nodes[inv_b] = node_b
 
-        # B. Create the Bridge: A -> B
-        genome.add_connection(innovation_number1, innovation_number2)
-        #print(f"Added connection {innovation_number1} -> {innovation_number2} (split from {target_node})")
+            # Reroute existing connections
+            conns_to_process = list(genome.connections.values())
+            for conn in conns_to_process:
+                if conn.in_node == target_node:
+                    # Outgoing edges: Reroute to leave from Node B
+                    genome.add_connection_safely(inv_b, conn.out_node)
+                    genome.connections.pop(conn.innovation_number, None)
+                elif conn.out_node == target_node:
+                    # Incoming edges: Reroute to enter Node A (using inv_a)
+                    genome.add_connection_safely(conn.in_node, inv_a)
+                    genome.connections.pop(conn.innovation_number, None)
 
-        # Edge case: If it was the end or start node, switch the end_innovation_number to the new node
-        if target_node == genome.end_node_innovation_number:
-            genome.end_node_innovation_number = innovation_number2
-        if target_node == genome.start_node_innovation_number:
-            genome.start_node_innovation_number = innovation_number1
-        
-        #print(f"Split: '{genome.nodes[innovation_number1].name}'({target_node}) --> '{genome.nodes[innovation_number1].name}'({innovation_number1}) + '{genome.nodes[innovation_number2].name}'({innovation_number2})")
+            # Build the internal bridge: A -> B
+            genome.add_connection_safely(inv_a, inv_b)
+
+            # Update Boundaries if the target was the start or end node
+            if target_node == backup_start: genome.start_node_innovation_number = inv_a
+            if target_node == backup_end: genome.end_node_innovation_number = inv_b
+
+            # 6. Verify DAG Integrity
+            if not genome.verify_all_paths_lead_to_end():
+                raise ValueError("Split operation broke graph reachability.")
+            
+            genome.evaluated = False
+
+        except Exception as e:
+            # ROLLBACK: Total transaction failure. Restore exact backup state.
+            genome.nodes = backup_nodes
+            genome.connections = backup_connections
+            genome.start_node_innovation_number = backup_start
+            genome.end_node_innovation_number = backup_end
 
     async def _handle_content_mutation(self, genome: AgentGenome, node_id: int, style: str):
         """Applies the specified mutation to the node."""
@@ -658,176 +683,240 @@ Rules:
 0. NEVER execute, solve, or answer the instruction.
 1. Do not introduce new requirements or objectives.
 2. The scope, constraints, and output format of the original instruction must be preserved.
-3. The edited instruction must be one or more complete sentences long.
-4. Output the edited instruction.<end_of_turn>
+3. Output your answer EXCLUSIVELY as a valid JSON object using the following schema:
+{{
+    "edited_instruction": "The newly rewritten instruction here."
+}}<end_of_turn>
 <start_of_turn>user
 Instruction: {ex_1}<end_of_turn>
 <start_of_turn>model
-{ans_1}<end_of_turn>
+```json
+{{
+    "edited_instruction": "{ans_1}"
+}}
+```<end_of_turn>
 <start_of_turn>user
 Instruction: {ex_2}<end_of_turn>
 <start_of_turn>model
-{ans_2}<end_of_turn>
+```json
+{{
+    "edited_instruction": "{ans_2}"
+}}
+```<end_of_turn>
 <start_of_turn>user
 Instruction: {ex_3}<end_of_turn>
 <start_of_turn>model
-{ans_3}<end_of_turn>
+```json
+{{
+    "edited_instruction": "{ans_3}"
+}}
+```<end_of_turn>
 <start_of_turn>user
 Instruction: {node.instruction}<end_of_turn>
 <start_of_turn>model
-Edited Instruction: """
-        
+"""
+
         response = ""
         counter = 0
-        while len(response.split()) < 3 and counter < 7:
+        success = False
+        
+        while not success and counter < 7:
             response: str = await self.llm.generate_text(template, max_tokens=256, temperature=(MUTATIONS_TEMPERATURE-counter*0.1))
             counter += 1
-        
-        if response and len(response.split()) > 3:
-            node.instruction = response.strip()
-            node.embedding = self.llm.get_embedding(response)
-            innovation_number =self.semantic_registry.get_or_create_innovation_number(node.embedding, set(genome.nodes.keys()), node.instruction, node_id)
             
-            if node_id != innovation_number:
-                node.innovation_number = innovation_number
-                #print(f"Updated innovation number for {node.name} from {node_id} to {innovation_number}")
-                # If the innovation number changed, we need to update connections that point to this node
-                for conn in list(genome.connections.values()):
-                    if conn.in_node == node_id:
-                        genome.add_connection(innovation_number, conn.out_node) # Re-add with updated key
-                        del genome.connections[f"{node_id}.{conn.out_node}"]
-                        #print(f"Updated connection from {node_id} -> {conn.out_node} to {innovation_number} -> {conn.out_node}")
-                        continue
-                    elif conn.out_node == node_id:
-                        genome.add_connection(conn.in_node, innovation_number) # Re-add with updated key
-                        del genome.connections[f"{conn.in_node}.{node_id}"]   
-                        #print(f"Updated connection from {conn.in_node} -> {node_id} to {conn.in_node} -> {innovation_number}")
-                        continue
-                # If this node was the start or end node, we need to update the genome's reference
-                if node_id == genome.start_node_innovation_number:
-                    genome.start_node_innovation_number = innovation_number
-                if node_id == genome.end_node_innovation_number:
-                    genome.end_node_innovation_number = innovation_number
-                node = genome.nodes.pop(node_id)
-                genome.add_node(node) # Update the node in the genome list
-        else:
-            print(f"Failed to generate new instruction for {node.name} with style {style}. Faulty response: {response}\n")
+            try:
+                import json
+                # Robust extraction: locate the JSON block even if markdown or text is present
+                start_idx = response.find('{')
+                end_idx = response.rfind('}') + 1
+                
+                if start_idx != -1 and end_idx != 0:
+                    json_str = response[start_idx:end_idx]
+                    data = json.loads(json_str)
+                    
+                    edited_instruction = data.get("edited_instruction", "").strip()
+                    
+                    if edited_instruction and len(edited_instruction.split()) > 3:
+                        node.instruction = edited_instruction
+                        node.embedding = self.llm.get_embedding(edited_instruction)
+                        innovation_number = self.semantic_registry.get_or_create_innovation_number(node.embedding, set(genome.nodes.keys()), node.instruction, node_id)
+                        
+                        if node_id != innovation_number:
+                            node.innovation_number = innovation_number
+                            
+                            # Re-map incoming/outgoing connections
+                            for conn in list(genome.connections.values()):
+                                if conn.in_node == node_id:
+                                    genome.add_connection(innovation_number, conn.out_node)
+                                    del genome.connections[f"{node_id}.{conn.out_node}"]
+                                elif conn.out_node == node_id:
+                                    genome.add_connection(conn.in_node, innovation_number)
+                                    del genome.connections[f"{conn.in_node}.{node_id}"]   
+                                    
+                            if node_id == genome.start_node_innovation_number:
+                                genome.start_node_innovation_number = innovation_number
+                            if node_id == genome.end_node_innovation_number:
+                                genome.end_node_innovation_number = innovation_number
+                                
+                            node = genome.nodes.pop(node_id)
+                            genome.add_node(node) 
+                            genome.evaluated = False
+                        
+                        success = True # Exit the while loop
+                    else:
+                        print(f"Attempt {counter}: Parsed instruction too short.")
+                else:
+                    print(f"Attempt {counter}: Failed to locate JSON brackets.")
+                    
+            except json.JSONDecodeError as e:
+                print(f"Attempt {counter}: JSON Decode Error: {e}")
+            except Exception as e:
+                print(f"Attempt {counter}: Unexpected error during mutation parsing: {e}")
+
+        if not success:
+            print(f"Failed to generate valid JSON instruction for {node.name} with style {style} after 7 attempts.\nLast response: {response}")
     
     async def _generate_new_node(self, name1: str, inst1: str, name2: str, inst2: str) -> PromptNode:
-        """
-        Asks for a bridging cognitive step.
-        Returns: A new PromptNode object connecting Step A and Step C.
-        """
         bridge_prompt = f"""<start_of_turn>system
-You are an expert cognitive architect designing reasoning pathways. Your task is to invent a logical intermediate step (Step B) that perfectly bridges the cognitive gap between Step A and Step C.
+You are an expert cognitive architect designing reasoning pathways. Your task is to invent a logical intermediate step (Step B) that bridges the cognitive gap between Step A and Step C.
 
-Constraint: You must output exactly ONE intermediate step using the strict format `[Step B] Name: <name> | Instr: <instruction>`. The instruction must clearly transform the outcome of Step A into the prerequisite needed for Step C. Do not include conversational filler.<end_of_turn>
-<start_of_turn>user
-[Step A] Name: Extract Variables | Instr: Identify the core subjects and conditions stated in the premise.
-[Step C] Name: Final Deduction | Instr: Synthesize the findings into a single verifiable conclusion.<end_of_turn>
-<start_of_turn>model
-[Step B] Name: Formulate Dependencies | Instr: Map out how the extracted variables interact and logically depend on one another.<end_of_turn>
-<start_of_turn>user
-[Step A] Name: Define Objective | Instr: Clarify the exact question that needs to be answered.
-[Step C] Name: Execute Solution | Instr: Calculate or derive the final answer based on the established framework.<end_of_turn>
-<start_of_turn>model
-[Step B] Name: Devise Strategy | Instr: Formulate a step-by-step logical plan connecting the initial objective to the required solution.<end_of_turn>
+Constraint: You must output your answer EXCLUSIVELY as a valid JSON object. Do not include any conversational text.
+Use this exact schema:
+{{
+    "name": "Short Name of Step B",
+    "instruction": "The clear instruction connecting A to C."
+}}<end_of_turn>
 <start_of_turn>user
 [Step A] Name: Read Context | Instr: Review the provided text carefully.
-[Step C] Name: Filter Noise | Instr: Discard all statements that do not directly contribute to the target question.<end_of_turn>
+[Step C] Name: Filter Noise | Instr: Discard statements that do not directly contribute to the question.<end_of_turn>
 <start_of_turn>model
-[Step B] Name: Isolate Claims | Instr: Extract the specific factual claims from the text to prepare them for evaluation.<end_of_turn>
+```json
+{{
+    "name": "Isolate Claims",
+    "instruction": "Extract the specific factual claims from the text to prepare them for evaluation."
+}}
+```<end_of_turn>
+<start_of_turn>user
+[Step A] Name: Identify Entities | Instr: List all the people mentioned in the document.
+[Step C] Name: Build Graph | Instr: Create a network graph detailing how the entities are connected.<end_of_turn>
+<start_of_turn>model
+```json
+{{
+    "name": "Determine Relationships",
+    "instruction": "Analyze the text surrounding the identified people to define the exact nature of their relationships."
+}}
+```<end_of_turn>
+<start_of_turn>user
+[Step A] Name: Translate Text | Instr: Translate the paragraph into French.
+[Step C] Name: Format Output | Instr: Return the final output enclosed in markdown bold tags.<end_of_turn>
+<start_of_turn>model
+```json
+{{
+    "name": "Review Translation",
+    "instruction": "Check the French translation for grammatical accuracy and ensure it maintains a natural tone."
+}}
+```<end_of_turn>
 <start_of_turn>user
 [Step A] Name: {name1} | Instr: {inst1}
 [Step C] Name: {name2} | Instr: {inst2}<end_of_turn>
 <start_of_turn>model
-[Step B] Name:"""
-                
-        # Robust Parsing
+"""
         try:
-            instruction = ""
-            i= -1
-            while len(instruction) < 3 or i < 3:
-                response: str = await self.llm.generate_text(bridge_prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
-                full_text = "Name:" + response 
-                name = full_text.split("Name:")[1].split("| Instr:")[0].strip()
-                instruction = full_text.split("Instr:")[1].strip()
-                i = i + 1
-
-            if len(instruction) >= 3: 
-                embedding = self.llm.get_embedding(instruction)
-                return PromptNode(name, instruction, embedding=embedding, innovation_number=-1)
-            else:
-                return None
+            response: str = await self.llm.generate_text(bridge_prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
+            
+            # Robust JSON extraction: Find the first { and last }
+            import json
+            start_idx = response.find('{')
+            end_idx = response.rfind('}') + 1
+            if start_idx != -1 and end_idx != 0:
+                json_str = response[start_idx:end_idx]
+                data = json.loads(json_str)
+                
+                name = data.get("name", "").strip()
+                instruction = data.get("instruction", "").strip()
+                
+                if len(instruction) >= 3:
+                    embedding = self.llm.get_embedding(instruction)
+                    return PromptNode(name, instruction, embedding=embedding, innovation_number=-1)
+                    
+            print(f"Bridge JSON Parsing Failed. Raw response: {response}")
+            return None
             
         except Exception as e:
-            print(f"Bridge Parsing Failed: {e} with response: {response}\n")
+            print(f"Bridge Exception: {e}")
             return None
     
     async def _split_instructions(self, original_instruction: str, original_name: str) -> tuple[str, str, str, str]:
-        """
-        Forces strict splitting format into two atomic cognitive steps.
-        Returns: (name1, prompt1, name2, prompt2)
-        """
         split_prompt = f"""<start_of_turn>system
-You are an expert cognitive architect designing reasoning pathways. Your task is to split a complex instruction into two sequential, atomic sub-steps (Part 1: Preparation/Analysis, Part 2: Execution/Formatting).
+You are an expert cognitive architect. Your task is to split a complex instruction into two sequential, atomic sub-steps (Part 1: Preparation, Part 2: Execution).
 
-Follow these rules:
-1. Output exactly TWO steps using this strict format: `[Step Number]. Name: <name> | Instr: <instruction>`.
-2. Each step must be a single line.
-3. CRITICAL TERMINAL RULE: If the Original Instr contains a strict output format or length constraint (e.g., "CONSTRAINT: output exactly one word"), you MUST append that exact constraint verbatim to the end of the Step 2 instruction. You may also add intermediate formatting constraints to Step 1 if it helps the data flow.<end_of_turn>
+Constraint: Output EXCLUSIVELY as a valid JSON array of two objects.
+CRITICAL TERMINAL RULE: If the Original Instr contains a strict output format (e.g., "answer with exactly one word", "output only the category"), you MUST append that constraint verbatim to the Step 2 instruction.
+
+Schema:
+[
+    {{"name": "Step 1 Name", "instruction": "Step 1 Instruction"}},
+    {{"name": "Step 2 Name", "instruction": "Step 2 Instruction"}}
+]<end_of_turn>
 <start_of_turn>user
-Original Name: Isolate and Deduce
-Original Instr: Discard irrelevant facts and logically deduce the hidden connection. CONSTRAINT: You must reply with exactly one word that describes the hidden connection.<end_of_turn>
+Original Name: Evaluate Sentiment
+Original Instr: Analyze the review and express its sentiment using exactly one word.<end_of_turn>
 <start_of_turn>model
-1. Name: Isolate Facts | Instr: Review the text and explicitly discard all irrelevant statements to generate a filtered list of core facts.
-2. Name: Deduce Connection | Instr: Use the isolated facts to logically deduce the final hidden connection between the subjects. CONSTRAINT: You must reply with exactly one word that describes the hidden connection.<end_of_turn>
+```json
+[
+    {{"name": "Extract Keywords", "instruction": "Identify the key adjectives and emotive phrases in the review."}},
+    {{"name": "Classify Sentiment", "instruction": "Based on the extracted keywords, express the sentiment using exactly one word."}}
+]
+```<end_of_turn>
 <start_of_turn>user
-Original Name: Baseline Kinship Evaluation
-Original Instr: Task: State only the one kinship word (from the possible answers) that describes the family relationship between the two target individuals.<end_of_turn>
+Original Name: Process Invoice
+Original Instr: Extract the total amount due from the invoice and convert it to USD.<end_of_turn>
 <start_of_turn>model
-1. Name: Trace Kinship Tree | Instr: Read the provided text carefully and systematically map the relational lineage from the first target individual to the second.
-2. Name: Format Kinship Term | Instr: Based on the mapped lineage, select the correct term from the allowed options and output only the kinship term that correctly describes the relationship.<end_of_turn>
+```json
+[
+    {{"name": "Locate Total Amount", "instruction": "Scan the provided invoice text and extract the final total amount due, including its original currency."}},
+    {{"name": "Convert Currency", "instruction": "Take the extracted total amount and calculate its equivalent value in USD."}}
+]
+```<end_of_turn>
 <start_of_turn>user
-Original Name: Compare
-Original Instr: Task: Compare the speed of the following veichles and return only the fastest one: car, boat, truck, bicycle, plane.<end_of_turn>
+Original Name: Categorize Support Ticket
+Original Instr: Read the customer email and classify it into billing, technical, or general inquiries, outputting only the category name.<end_of_turn>
 <start_of_turn>model
-1. Name: Understand individual speed | Instr: For each of the following veichles, write the respective top speed in km/h: car, boat, truck, bicycle, plane.
-2. Name: Return fastest | Instr: Based on the top speeds, output only the name of the fastest vehicle.<end_of_turn>
+```json
+[
+    {{"name": "Analyze Email Content", "instruction": "Read the customer email to determine the primary issue or question being raised."}},
+    {{"name": "Assign Category", "instruction": "Classify the identified issue into billing, technical, or general inquiries, outputting only the category name."}}
+]
+```<end_of_turn>
 <start_of_turn>user
 Original Name: {original_name}
 Original Instr: {original_instruction}<end_of_turn>
 <start_of_turn>model
-1. Name:"""
-        
-        response: str = await self.llm.generate_text(split_prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
+"""
         
         try:
-            full_text = "1. Name:" + response
+            response: str = await self.llm.generate_text(split_prompt, max_tokens=256, temperature=MUTATIONS_TEMPERATURE)
             
-            # Clean empty lines to prevent IndexError if the model adds newlines
-            lines = [l.strip() for l in full_text.splitlines() if l.strip()]
+            import json
+            start_idx = response.find('[')
+            end_idx = response.rfind(']') + 1
             
-            # Extract Line 1
-            part1 = lines[0].split("| Instr:")
-            n1 = part1[0].replace("1. Name:", "").strip()
-            i1 = part1[1].strip()
-            
-            # Extract Line 2 (Find the first line starting with "2.")
-            line2 = next(l for l in lines if l.startswith("2."))
-            part2 = line2.split("| Instr:")
-            n2 = part2[0].replace("2. Name:", "").strip()
-            i2 = part2[1].strip()
-            
-            return n1, i1, n2, i2
+            if start_idx != -1 and end_idx != 0:
+                json_str = response[start_idx:end_idx]
+                data = json.loads(json_str)
+                
+                if len(data) == 2:
+                    return (
+                        data[0]["name"].strip(), data[0]["instruction"].strip(),
+                        data[1]["name"].strip(), data[1]["instruction"].strip()
+                    )
+
+            raise ValueError("Invalid JSON array length or format.")
+
             
         except Exception as e:
-            # print(f"Split Parsing Failed: {e}. Falling back to safe split.")
-            
-            # SAFE FALLBACK INVERSION: 
-            # Node 1 becomes a silent preparation step.
-            # Node 2 retains the original instruction to preserve the terminal trap.
+            # Safe Fallback
             prep_name = f"Prepare_{original_name.replace(' ', '_')}"
-            prep_instruction = "Analyze the provided context and explicitly map out the entities involved before proceeding with the other task."
-            
+            prep_instruction = "Analyze the provided context and explicitly map out the entities involved before proceeding."
             return prep_name, prep_instruction, original_name, original_instruction
+        
