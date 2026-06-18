@@ -1,5 +1,5 @@
 import copy
-
+import json
 import numpy as np
 import random
 from Genome.agent_genome import AgentGenome
@@ -71,29 +71,38 @@ mutator = Mutator(breeder_llm, config=tuning_config)
 
     @staticmethod
     def get_dynamic_config(generation: int, node_count: int, connections_count: int) -> dict:
-        """
-        Calculates Macro-Layer mutation probabilities (Cooling schedule & Topology).
-        Content mutation probabilities are now calculated dynamically per-node.
-        """
-        
-        # --- 1. Global Rate Calculations ---
-        if generation < 2:
-            p_arch = 0.0 
-            p_gene = 0.8 
-        else:
-            decay_steps = max(0, generation - 1)
-            p_arch = max(0.25, 0.75 * (0.95 ** decay_steps))
-            p_gene = max(0.30, 0.85 * (0.95 ** decay_steps))
+        decay_steps = max(0, generation - 1)
 
-        # --- 2. Architectural Probabilities (Strict Capping & Sparsity) ---
-        if node_count >= 5:
-            p_add_node = 0.0
+        # --- 1. Global Event Triggers ---
+        
+        # ARCHITECTURE: High floor (0.35) ensures we continuously explore the vast DAG connection space.
+        p_arch = max(0.35, 0.70 * (0.90 ** decay_steps))
+        
+        # GENE EXPECTED VALUE: Target ~1.5 nodes mutated early on, cooling to ~0.5 nodes.
+        target_mutated_nodes = max(0.5, 1.5 * (0.95 ** decay_steps))
+        
+        # N-SCALING: We divide the target by the actual node count.
+        # If target is 0.8, and we have 4 nodes, each node gets a 20% chance.
+        # This completely eliminates the multi-mutation inefficiency.
+        if generation < 2:
+            p_gene = 0.8 # Warm-up bypass
         else:
-            p_add_node = 0.6 * (0.5 ** (max(0, node_count - 2)))
+            p_gene = min(1.0, target_mutated_nodes / max(1, node_count))
+
+        # --- 2. Architectural Probabilities (Discrete State Control) ---
+        if node_count <= 2:
+            p_add_node = 1.0 
+        elif node_count == 3:
+            p_add_node = 0.60 
+        elif node_count == 4:
+            p_add_node = 0.15 
+        else: 
+            p_add_node = 0.0 
             
         p_remove_node = 1.0 - p_add_node
 
-        if node_count <= 1:
+        # --- 3. Connection Saturation Logic ---
+        if node_count <= 2:
             p_add_conn = 1.0
             p_remove_conn = 0.0
         else:
@@ -102,16 +111,23 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             saturation = (connections_count - min_C) / max(1.0, (max_C - min_C))
             
             p_remove_conn = saturation * 0.75
-            p_add_conn = (1.0 - saturation) * 0.25
-
-        arch_total_nodes = p_add_node + p_remove_node
-        arch_total_conns = p_add_conn + p_remove_conn
+            p_add_conn = 1.0 - p_remove_conn
         
+        # --- 4. Dynamic Search Space Allocation ---
+        # When graph is small, prioritize adding nodes.
+        if node_count <= 3:
+            node_weight = 0.70
+            conn_weight = 0.30
+        # When graph hits 4, protect the nodes but aggressively rewire connections.
+        else:
+            node_weight = 0.15 
+            conn_weight = 0.85 
+
         arch_probs = {
-            MutType.ARCH_ADD_NODE:    (p_add_node / arch_total_nodes) * 0.6,
-            MutType.ARCH_REMOVE_NODE: (p_remove_node / arch_total_nodes) * 0.6,
-            MutType.ARCH_ADD_CONN:    (p_add_conn / max(1e-5, arch_total_conns)) * 0.4,
-            MutType.ARCH_REMOVE_CONN: (p_remove_conn / max(1e-5, arch_total_conns)) * 0.4,
+            MutType.ARCH_ADD_NODE:    p_add_node * node_weight,
+            MutType.ARCH_REMOVE_NODE: p_remove_node * node_weight,
+            MutType.ARCH_ADD_CONN:    p_add_conn * conn_weight,
+            MutType.ARCH_REMOVE_CONN: p_remove_conn * conn_weight,
         }
 
         return {
@@ -226,21 +242,6 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         if not transaction["removed_node"]:
             return
 
-        # 2. Verify DAG Invariants 
-        if not genome.verify_all_paths_lead_to_end():
-            # ROLLBACK: The Cartesian bypass broke reachability
-            
-            # A. Purge the new bypass connections
-            for new_c_id in transaction["added_connections"].keys():
-                genome.connections.pop(new_c_id, None)
-                
-            # B. Restore the original node
-            genome.nodes[node_id] = transaction["removed_node"]
-            
-            # C. Restore the original load-bearing connections
-            for old_c_id, old_conn in transaction["removed_connections"].items():
-                genome.connections[old_c_id] = old_conn
-
     def _handle_add_connection(self, genome: AgentGenome):
         """
         Brute-force attempts to add connections, letting the genome's strict
@@ -309,7 +310,11 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         # 2. Gene Level Mutations (Evaluated and dynamically weighted per node)
         await self._apply_gene_mutations(mutated_genome, p_mutate_node, total_nodes)
 
-        return mutated_genome
+        if mutated_genome.verify_all_paths_lead_to_end():
+            return mutated_genome
+        else:
+            return genome
+
     # --- Internal Logic ---
     async def _apply_global_mutation(self, genome: AgentGenome, mutation_type: MutType):
         """Dispatches architectural mutations."""
@@ -333,45 +338,56 @@ mutator = Mutator(breeder_llm, config=tuning_config)
         rng = np.random.default_rng()
 
         for node_id in nodes_snapshot:
-            if rng.random() < p_mutate:
+            random_float = rng.random()
+            if random_float < p_mutate:
                 node = genome.nodes[node_id]
                 
                 # --- Micro-Layer Distribution Calculation ---
                 instruction_length_tokens = len(node.instruction) // 4
                 
                 # Normalize length to a [0, 1] scale (assuming 150 tokens is "highly bloated")
-                bloat_factor = min(1.0, instruction_length_tokens / 150.0)
+                remaining = 1.0
+                bloat_factor = min(1.0, instruction_length_tokens / 100.0)
                 
                 # 1. Split Logic: Requires both high bloat AND graph space
                 # Do not attempt to split tiny instructions (< 40 chars)
-                if total_nodes >= 5 or instruction_length_tokens < 30:
+                if total_nodes >= 5 or instruction_length_tokens <= 25:
                     split_prob = 0.0
                 else:
-                    # Approaches 35% chance as the node gets extremely bloated
-                    split_prob = bloat_factor * 0.35 
+                    # Approaches 65% chance as the node gets extremely bloated
+                    split_prob = bloat_factor * 0.65 
+                remaining -= split_prob
 
                 # 2. Simplify vs Expand Slider
-                # At 0 bloat, Expand is 45%, Simplify is 5%.
-                # At 1.0 bloat, Simplify is 50%, Expand is 0%.
-                simplify_prob = 0.05 + (0.45 * bloat_factor)
-                expand_prob = max(0.0, 0.45 - (0.45 * bloat_factor))
-
-                # 3. Distribute remaining probability evenly among stylistic mutations
-                remaining = max(0.0, 1.0 - (split_prob + simplify_prob + expand_prob))
-                others_prob = remaining / 3.0
+                if instruction_length_tokens <= 30:
+                    simplify_prob = 0.0
+                else:
+                    # Approaches 35% chance as the node gets extremely bloated
+                    simplify_prob = bloat_factor * 0.25
+                remaining -= simplify_prob
+                expand_prob = remaining * 0.35
+                remaining -= expand_prob
+                inject_reasoning_prob = remaining * 0.5
+                remaining -= inject_reasoning_prob
+                add_persona_prob = remaining * 0.5
+                remaining -= add_persona_prob
+                reformulate_prob = remaining
 
                 node_gene_probs = {
                     MutType.GENE_SPLIT:            split_prob,
                     MutType.GENE_SIMPLIFY:         simplify_prob,
                     MutType.GENE_EXPAND:           expand_prob,
-                    MutType.GENE_INJECT_REASONING: others_prob*0.35,
-                    MutType.GENE_ADD_PERSONA:      others_prob*0.25,
-                    MutType.GENE_REFORMULATE:      others_prob*0.40
+                    MutType.GENE_INJECT_REASONING: inject_reasoning_prob,
+                    MutType.GENE_ADD_PERSONA:      add_persona_prob,
+                    MutType.GENE_REFORMULATE:      reformulate_prob
                 }
                 
                 # Build CDF specifically for this node and select mutation
                 node_cdf = self._build_cdf(node_gene_probs)
                 mut_type = self._pick_from_cdf(node_cdf)
+
+                #if mut_type:
+                    #print(f"Applying Mutation: {mut_type} to Node: {node_id}")
                 
                 # --- Execute Mutation ---
                 if mut_type == MutType.GENE_SPLIT:
@@ -420,6 +436,10 @@ mutator = Mutator(breeder_llm, config=tuning_config)
                 node_a.embedding, set(genome.nodes.keys()), node_a.instruction, target_node
             ) if self.semantic_registry else random.randint(10000, 99999)
 
+            if inv_a != target_node:
+                node_a.innovation_number = inv_a
+                genome.nodes[inv_a] = genome.nodes.pop(target_node)
+
             # 4. Formulate Node B (New Node)
             node_b = PromptNode(name=name2, instruction=prompt2)
             node_b.embedding = self.llm.get_embedding(prompt2)
@@ -430,38 +450,37 @@ mutator = Mutator(breeder_llm, config=tuning_config)
             
             node_b.innovation_number = inv_b
 
-            # 5. Execute Topological Shift
-            # If Node A's ID changed semantically, update its dictionary key
-            if inv_a != target_node:
-                node_a.innovation_number = inv_a
-                genome.nodes[inv_a] = genome.nodes.pop(target_node)
-            
+            # 5. Execute Topological Shift         
             genome.nodes[inv_b] = node_b
 
             # Reroute existing connections
             conns_to_process = list(genome.connections.values())
             for conn in conns_to_process:
-                if conn.in_node == target_node:
+                if conn.in_node == target_node and inv_b != target_node:
                     # Outgoing edges: Reroute to leave from Node B
                     genome.add_connection_safely(inv_b, conn.out_node)
                     genome.connections.pop(conn.innovation_number, None)
-                elif conn.out_node == target_node:
+                elif conn.out_node == target_node and inv_a != target_node:
                     # Incoming edges: Reroute to enter Node A (using inv_a)
                     genome.add_connection_safely(conn.in_node, inv_a)
                     genome.connections.pop(conn.innovation_number, None)
-
-            # Build the internal bridge: A -> B
-            genome.add_connection_safely(inv_a, inv_b)
-
+            
             # Update Boundaries if the target was the start or end node
             if target_node == backup_start: genome.start_node_innovation_number = inv_a
             if target_node == backup_end: genome.end_node_innovation_number = inv_b
 
-            # 6. Verify DAG Integrity
-            if not genome.verify_all_paths_lead_to_end():
-                raise ValueError("Split operation broke graph reachability.")
+            # Build the internal bridge: A -> B
+            genome.add_connection_safely(inv_a, inv_b)
+
+            if genome.verify_all_paths_lead_to_end():
+                genome.evaluated = False
             
-            genome.evaluated = False
+            else:
+                # ROLLBACK: Total transaction failure. Restore exact backup state.
+                genome.nodes = backup_nodes
+                genome.connections = backup_connections
+                genome.start_node_innovation_number = backup_start
+                genome.end_node_innovation_number = backup_end
 
         except Exception as e:
             # ROLLBACK: Total transaction failure. Restore exact backup state.
@@ -719,14 +738,21 @@ Instruction: {node.instruction}<end_of_turn>
         response = ""
         counter = 0
         success = False
+        backup_genome =genome.copy()
         
-        while not success and counter < 7:
-            response: str = await self.llm.generate_text(template, max_tokens=256, temperature=(MUTATIONS_TEMPERATURE-counter*0.1))
+        while not success and counter < 7: 
+            # Clamp temperature to a minimum of 0.0 to prevent API 400 Bad Request
+            current_temp = max(0.0, MUTATIONS_TEMPERATURE - counter * 0.1)
+            #print(f"Mutation counter: {counter} | Temp: {current_temp:.2f}")
+            
+            response: str = await self.llm.generate_text(template, max_tokens=256, temperature=current_temp)
             counter += 1
             
+            if not response:
+                print(f"Attempt {counter}: Empty response from LLM API.")
+                continue
+
             try:
-                import json
-                # Robust extraction: locate the JSON block even if markdown or text is present
                 start_idx = response.find('{')
                 end_idx = response.rfind('}') + 1
                 
@@ -736,33 +762,47 @@ Instruction: {node.instruction}<end_of_turn>
                     
                     edited_instruction = data.get("edited_instruction", "").strip()
                     
-                    if edited_instruction and len(edited_instruction.split()) > 3:
+                    if edited_instruction and len(edited_instruction.split()) >= 3:
                         node.instruction = edited_instruction
                         node.embedding = self.llm.get_embedding(edited_instruction)
-                        innovation_number = self.semantic_registry.get_or_create_innovation_number(node.embedding, set(genome.nodes.keys()), node.instruction, node_id)
+                        
+                        innovation_number = self.semantic_registry.get_or_create_innovation_number(
+                            node.embedding, set(genome.nodes.keys()), node.instruction, node_id
+                        ) if self.semantic_registry else random.randint(10000, 99999)
                         
                         if node_id != innovation_number:
                             node.innovation_number = innovation_number
                             
-                            # Re-map incoming/outgoing connections
-                            for conn in list(genome.connections.values()):
+                            # 1. Safely extract and purge old connections
+                            conns_to_remap = [c for c in genome.connections.values() if c.in_node == node_id or c.out_node == node_id]
+                            for conn in conns_to_remap:
+                                genome.connections.pop(conn.innovation_number, None)
+                                
+                                # 2. Safely reconstruct with new ID
                                 if conn.in_node == node_id:
-                                    genome.add_connection(innovation_number, conn.out_node)
-                                    del genome.connections[f"{node_id}.{conn.out_node}"]
+                                    genome.add_connection_safely(innovation_number, conn.out_node)
                                 elif conn.out_node == node_id:
-                                    genome.add_connection(conn.in_node, innovation_number)
-                                    del genome.connections[f"{conn.in_node}.{node_id}"]   
+                                    genome.add_connection_safely(conn.in_node, innovation_number)
                                     
+                            # Update global pointers
                             if node_id == genome.start_node_innovation_number:
                                 genome.start_node_innovation_number = innovation_number
                             if node_id == genome.end_node_innovation_number:
                                 genome.end_node_innovation_number = innovation_number
                                 
-                            node = genome.nodes.pop(node_id)
-                            genome.add_node(node) 
-                            genome.evaluated = False
+                            # Update nodes dictionary correctly
+                            genome.nodes.pop(node_id, None)
+                            genome.nodes[innovation_number] = node 
                         
-                        success = True # Exit the while loop
+                        if genome.verify_all_paths_lead_to_end():
+                            success = True 
+                            genome.evaluated = False
+                        else:
+                            genome.nodes = backup_genome.nodes
+                            genome.connections = backup_genome.connections
+                            genome.start_node_innovation_number = backup_genome.start_node_innovation_number
+                            genome.end_node_innovation_number = backup_genome.end_node_innovation_number
+
                     else:
                         print(f"Attempt {counter}: Parsed instruction too short.")
                 else:
@@ -771,7 +811,7 @@ Instruction: {node.instruction}<end_of_turn>
             except json.JSONDecodeError as e:
                 print(f"Attempt {counter}: JSON Decode Error: {e}")
             except Exception as e:
-                print(f"Attempt {counter}: Unexpected error during mutation parsing: {e}")
+                print(f"Attempt {counter}: Unexpected error during mutation mapping: {e}")
 
         if not success:
             print(f"Failed to generate valid JSON instruction for {node.name} with style {style} after 7 attempts.\nLast response: {response}")
@@ -848,12 +888,9 @@ Use this exact schema:
     
     async def _split_instructions(self, original_instruction: str, original_name: str) -> tuple[str, str, str, str]:
         split_prompt = f"""<start_of_turn>system
-You are an expert cognitive architect. Your task is to split a complex instruction into two sequential, atomic sub-steps (Part 1: Preparation, Part 2: Execution).
-
-Constraint: Output EXCLUSIVELY as a valid JSON array of two objects.
+You are an expert cognitive architect. Your task is to split an instruction into two sequential, atomic sub-steps (Part 1: Preparation, Part 2: Execution).
 CRITICAL TERMINAL RULE: If the Original Instr contains a strict output format (e.g., "answer with exactly one word", "output only the category"), you MUST append that constraint verbatim to the Step 2 instruction.
-
-Schema:
+Constraint: Output EXCLUSIVELY as a valid JSON array of exactly two objects following the JSON schema:
 [
     {{"name": "Step 1 Name", "instruction": "Step 1 Instruction"}},
     {{"name": "Step 2 Name", "instruction": "Step 2 Instruction"}}
@@ -905,18 +942,31 @@ Original Instr: {original_instruction}<end_of_turn>
                 json_str = response[start_idx:end_idx]
                 data = json.loads(json_str)
                 
+                # Ideal Scenario: Model followed instructions
                 if len(data) == 2:
                     return (
                         data[0]["name"].strip(), data[0]["instruction"].strip(),
                         data[1]["name"].strip(), data[1]["instruction"].strip()
                     )
-
-            raise ValueError("Invalid JSON array length or format.")
-
+                
+                # Graceful Handling: Model found the instruction too atomic to split
+                elif len(data) == 1:
+                    prep_name = f"Prepare {original_name}"
+                    prep_instruction = "Analyze the provided context and extract the specific variables needed for the final execution."
+                    return (
+                        prep_name, prep_instruction,
+                        data[0]["name"].strip(), data[0]["instruction"].strip()
+                    )
             
+        except json.JSONDecodeError as e:
+            pass # Fails silently to route to the fallback
         except Exception as e:
-            # Safe Fallback
-            prep_name = f"Prepare_{original_name.replace(' ', '_')}"
-            prep_instruction = "Analyze the provided context and explicitly map out the entities involved before proceeding."
-            return prep_name, prep_instruction, original_name, original_instruction
+            print(f"Split Error: {e}")
+
+        # Unified Safe Fallback
+        # Executes if the LLM output is entirely invalid or an unexpected error occurs
+        prep_name = f"Prepare_{original_name.replace(' ', '_')}"
+        prep_instruction = "Analyze the provided context and explicitly map out the entities involved before proceeding."
+        return prep_name, prep_instruction, original_name, original_instruction
+
         

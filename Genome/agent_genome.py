@@ -158,6 +158,19 @@ class AgentGenome:
                     
                     self.connections[new_c_id] = new_conn
                     transaction["added_connections"][new_c_id] = new_conn
+        
+        if not self.verify_all_paths_lead_to_end():
+            
+            # A. Purge the new bypass connections
+            for new_c_id in transaction["added_connections"].keys():
+                self.connections.pop(new_c_id, None)
+                
+            # B. Restore the original node
+            self.nodes[node_innovation_number] = transaction["removed_node"]
+            
+            # C. Restore the original load-bearing connections
+            for old_c_id, old_conn in transaction["removed_connections"].items():
+                self.connections[old_c_id] = old_conn
 
         return transaction
 

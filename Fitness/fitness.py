@@ -100,7 +100,12 @@ class Fitness:
         if not problem_pool:
             raise ValueError("Problem pool cannot be empty.")
         
-        print(f"Evaluating population of {len(population)} individuals on {len(problem_pool)} problems with circuit breaker threshold at {PERCENTAGE_FAILURE_THRESHOLD*100}% failures.")
+        tbe_individuals = []
+        for individual in population:
+            if not individual.genome.evaluated:
+                tbe_individuals.append(individual)
+        
+        print(f"Evaluating population of {len(tbe_individuals)} individuals on {len(problem_pool)} problems with circuit breaker threshold at {PERCENTAGE_FAILURE_THRESHOLD*100}% failures.")
 
         # --- THE HARDWARE LIMITER ---
         MAX_CONCURRENT = 50 
@@ -114,7 +119,7 @@ class Fitness:
         # 1. Create the bounded tasks
         tasks = [
             _bounded_evaluate(individual)
-            for individual in population
+            for individual in tbe_individuals 
         ]
 
         # 2. Fire gather. It will attempt to run all, but the Semaphore 
@@ -133,6 +138,7 @@ class Fitness:
         if all_accuracies:
             max_accuracy = max(all_accuracies)
             avg_accuracy = sum(all_accuracies) / len(all_accuracies)
-            self.best_accuracy = max_accuracy
+            if max_accuracy > self.best_accuracy:
+                self.best_accuracy = max_accuracy
             self.avg_accuracy = avg_accuracy
     

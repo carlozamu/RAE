@@ -297,7 +297,7 @@ CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the l
         return few_shots_prompt
     
     @staticmethod
-    def build_prompt_clutrr(story: str, query: str) -> str:
+    def build_prompt_clutrr(story: str, query: str, examles: str) -> str:
         clean_query = query.replace("(", "").replace(")", "").replace("'", "")
         try:
             name1, name2 = [name.strip() for name in clean_query.split(',')]

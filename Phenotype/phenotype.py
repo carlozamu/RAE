@@ -10,6 +10,13 @@ class Phenotype:
         self.llm = llm_client
 
     async def run(self, problem: str, execution_order: list[tuple[PromptNode, list[int]]]) -> Dict[str, Any]:
+        # Guard against invalid graph structures
+        if not execution_order:
+            return {
+                "answer": "Execution failed: Invalid topology or disconnected graph.",
+                "stats": {"total_tokens": 0, "input_tokens": 0, "output_tokens": 0, "time_taken": 0.0, "steps": 0}
+            }
+        
         # 1. Build the execution sequence as a formatted Markdown string list
         order_lines = []
         for step_idx, (node, parents) in enumerate(execution_order):
@@ -53,13 +60,11 @@ class Phenotype:
 
         # 3. Execution Loop
         for node, parent_ids in execution_order:
-            
-            # A. Build Context
             context_parts = [f"<start_of_turn>system\n{problem}<end_of_turn>\n"]
             
             if parent_ids:
                 for pid in parent_ids:
-                    # We only fetch the ints, saving memory
+                    # 'pid' is an innovation_number. We now correctly check trait_answers.
                     if pid in trait_answers:
                         parent_instructions, parent_answer = trait_answers[pid]
                         parent_turn = f"<start_of_turn>user\n{parent_instructions}<end_of_turn>\n<start_of_turn>model\n{parent_answer}<end_of_turn>\n"
@@ -79,7 +84,7 @@ class Phenotype:
             last = False
             
             # C. Store Result
-            trait_answers[node.id] = (node.instruction, answer)
+            trait_answers[node.innovation_number] = (node.instruction, answer)
             
             # D. Accumulate Stats
             total_in_tokens += in_t
@@ -87,7 +92,7 @@ class Phenotype:
             total_time += duration
 
         # 4. Final Result
-        final_answer = trait_answers[execution_order[-1][0].id][1]
+        final_answer = trait_answers[execution_order[-1][0].innovation_number][1]
         
         final_object = {
             "answer": final_answer,

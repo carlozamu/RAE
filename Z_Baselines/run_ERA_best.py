@@ -8,6 +8,16 @@ import time
 import gc
 from typing import Dict
 import torch
+import os
+import sys
+
+# Get the absolute path of the directory one level up (RAE)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+
+# Append it to sys.path if it's not already there
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
 
 # --- Internal Modules ---
 from Fitness.fitness import Fitness
@@ -85,47 +95,67 @@ async def run_baseline():
 
     node_0 = PromptNode(
         name="Node 0", 
-        instruction="Analyze the chosen kinship term to categorize its relationship type.",
+        instruction="Determine the primary relationship established by the given kinship word.", 
         innovation_number=0
     )
-    node_10 = PromptNode(
-        name="Node 10", 
-        instruction="Carefully review the text for any explicit statements about familial relationships. Identify the individuals involved and their connections. Then, synthesize these relationships into a concise and clear description, avoiding any ambiguity.",
-        innovation_number=10
+    node_1 = PromptNode(
+        name="Node 1", 
+        instruction="As a familial researcher, state the kinship word and respond with exactly one word.", 
+        innovation_number=1
     )
-    node_24 = PromptNode(
-        name="Node 24", 
-        instruction="Begin by defining familial relationships. Second, formulate a single-sentence statement accurately reflecting the core characteristic of the familial link. Finally, present the definition concisely.",
-        innovation_number=24
+    node_6 = PromptNode(
+        name="Node 6", 
+        instruction="Analyze the provided context and extract the specific variables required for the final execution. Prioritize clarity and conciseness in your response.",
+        innovation_number=6
+    )
+    node_3 = PromptNode(
+        name="Node 3", 
+        instruction="As a family historian, identify the specific familial connection implied by the provided context.",
+        innovation_number=3
     )
 
+
     nodes_dict = {
-        77: node_0,
-        127: node_10,
-        92: node_24
+        0: node_0,
+        1: node_1,
+        3: node_3,
+        6: node_6
     }
 
     connection_1 = Connection(
-        input_node_in=node_0.innovation_number, 
-        output_node_in=node_10.innovation_number, 
+        input_node_in=node_6.innovation_number, 
+        output_node_in=node_3.innovation_number, 
         enabled=True
     )
     connection_2 = Connection(
-        input_node_in=node_10.innovation_number, 
-        output_node_in=node_24.innovation_number, 
+        input_node_in=node_6.innovation_number, 
+        output_node_in=node_0.innovation_number, 
+        enabled=True
+    )
+    connection_3 = Connection(
+        input_node_in=node_3.innovation_number, 
+        output_node_in=node_0.innovation_number, 
+        enabled=True
+    )
+    connection_4 = Connection(
+        input_node_in=node_0.innovation_number, 
+        output_node_in=node_1.innovation_number, 
         enabled=True
     )
 
+
     connection_dict = {
         connection_1.innovation_number: connection_1,
-        connection_2.innovation_number: connection_2
+        connection_2.innovation_number: connection_2,
+        connection_3.innovation_number: connection_3,
+        connection_4.innovation_number: connection_4
     }
 
     winner_genome = AgentGenome(
         nodes_dict=nodes_dict,
         connections_dict=connection_dict,
-        start_node_innovation_number=0,
-        end_node_innovation_number=24
+        start_node_innovation_number=6,
+        end_node_innovation_number=1
     )
 
     phenotype = Phenotype(
