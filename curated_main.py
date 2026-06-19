@@ -19,6 +19,7 @@ from ERA.init_pop import initialize_population
 from Selection.selection import RankBasedSelection
 from Species.species_breeder import SpeciesBreeder
 from Species.speciation_engine import SpeciationEngine
+from Z_Baselines.run_ERA_best import run_ERA_best_individual
 
 # --- Configuration ---
 MODEL_NAME = "google/gemma-3-1b-it" 
@@ -205,6 +206,20 @@ async def run_evolution():
             break
 
     log_and_print("--- Evolution Finished ---")
+    force_cleanup()
+
+    # find individual with the highest accuracy
+    best_accuracy_individual = max(evaluated_population, key=lambda x: x.genome.accuracy)
+    best_acc_phenotype = Phenotype(genome=best_accuracy_individual, llm_client=llm_client)
+    print(f"🏆 Final Best Accuracy: {best_accuracy_individual.genome.accuracy:.4f}")
+    await run_ERA_best_individual(dataset_manager, fitness_evaluator, best_acc_phenotype)
+
+    # find individual with the highest fitness
+    best_fitness_individual = max(evaluated_population, key=lambda x: x.genome.fitness)
+    if best_fitness_individual.id != best_accuracy_individual.id:
+        best_fit_phenotype = Phenotype(genome=best_fitness_individual, llm_client=llm_client)
+        print(f"🏆 Final Best Fitness: {best_fitness_individual.genome.fitness:.4f}")
+        await run_ERA_best_individual(dataset_manager, fitness_evaluator, best_fit_phenotype)
 
 if __name__ == "__main__":
     try:

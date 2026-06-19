@@ -5,85 +5,93 @@ Baseline Execution Script (No Primer + Logging)
 import asyncio
 from tqdm.asyncio import tqdm
 import time
-import gc
-from typing import Dict
-import torch
-import os
-import sys
-
-# Get the absolute path of the directory one level up (RAE)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-
-# Append it to sys.path if it's not already there
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
 
 # --- Internal Modules ---
 from Fitness.fitness import Fitness
 from Data.clutrr import CLUTTRManager
-from Gene.connection import Connection
-from Gene.gene import PromptNode
-from Genome.agent_genome import AgentGenome
+from Utils.utilities import log_and_print
 from Phenotype.phenotype import Phenotype
-from Utils.LLM import LLM
 
 # --- Configuration ---
-MODEL_NAME = "google/gemma-3-1b-it" 
-BASE_URL = "http://localhost:8000"  
-MAX_CONCURRENT_REQUESTS = 50 
-
-def force_cleanup():
-    print("\n🧹 Performing Memory Cleanup...")
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
-    print("✅ GPU Memory Released.")
-
-async def _evaluate_single_problem(individual:Phenotype, problem:Dict, execution_order:list[tuple[PromptNode, list[int]]], fitness:Fitness, semaphore:asyncio.Semaphore):
-    """Worker function with index tracking for debug printing."""
-    async with semaphore:
-
-        try:
-            response = await individual.run(problem=problem['question'], execution_order=execution_order)
-            token_used = response['stats'].get('total_tokens', 0)
-        except Exception as e:
-            print(f"Error executing baseline prompt: {e}")
-            response = ""
-            token_used = 0
-
-        # Clean the generated answer for word counting and logging
-        clean_ans:str = response['answer'].strip()
-        
-        # 1. Get the exact word count
-        answer_length = len(clean_ans.split())
-
-        expected = problem['answer']
-        is_correct = False
-        
-        if problem.get('task_type') == 'cluttr':
-            mapped_response = CLUTTRManager.map_to_relation(clean_ans.lower())
-            is_correct = (mapped_response == expected)
-        else:
-            is_correct = (clean_ans.lower() == expected.strip().lower())
-
-        score = fitness.calculator.compute_score(
-            is_correct=is_correct,
-            token_count=token_used,
-            answer_length=answer_length
-        )
-        
-        return is_correct, score, answer_length
-
-async def run_baseline():
-    print("\n--- Initializing ERA Baseline ---")
+MAX_CONCURRENT_REQUESTS = 45
+async def run_ERA_best_individual(dataset_manager:CLUTTRManager, fitness:Fitness, era_best: Phenotype):
+    print("\n--- Initializing ERA Best ---")
     start_time = time.time()
     
-    llm_client = LLM(model_name=MODEL_NAME, base_url=BASE_URL)
-    dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
-    fitness = Fitness(llm=llm_client)
+    # llm_client = LLM(model_name=MODEL_NAME, base_url=BASE_URL)
+    # dataset_manager = CLUTTRManager(split_config="gen_train234_test2to10")
+    # fitness = Fitness(llm=llm_client)
     
+    # node_0 = PromptNode(
+    #     name="Node 0", 
+    #     instruction="Determine the primary relationship established by the given kinship word.", 
+    #     innovation_number=0
+    # )
+    # node_1 = PromptNode(
+    #     name="Node 1", 
+    #     instruction="As a familial researcher, state the kinship word and respond with exactly one word.", 
+    #     innovation_number=1
+    # )
+    # node_6 = PromptNode(
+    #     name="Node 6", 
+    #     instruction="Analyze the provided context and extract the specific variables required for the final execution. Prioritize clarity and conciseness in your response.",
+    #     innovation_number=6
+    # )
+    # node_3 = PromptNode(
+    #     name="Node 3", 
+    #     instruction="As a family historian, identify the specific familial connection implied by the provided context.",
+    #     innovation_number=3
+    # )
+
+
+    # nodes_dict = {
+    #     0: node_0,
+    #     1: node_1,
+    #     3: node_3,
+    #     6: node_6
+    # }
+
+    # connection_1 = Connection(
+    #     input_node_in=node_6.innovation_number, 
+    #     output_node_in=node_3.innovation_number, 
+    #     enabled=True
+    # )
+    # connection_2 = Connection(
+    #     input_node_in=node_6.innovation_number, 
+    #     output_node_in=node_0.innovation_number, 
+    #     enabled=True
+    # )
+    # connection_3 = Connection(
+    #     input_node_in=node_3.innovation_number, 
+    #     output_node_in=node_0.innovation_number, 
+    #     enabled=True
+    # )
+    # connection_4 = Connection(
+    #     input_node_in=node_0.innovation_number, 
+    #     output_node_in=node_1.innovation_number, 
+    #     enabled=True
+    # )
+
+
+    # connection_dict = {
+    #     connection_1.innovation_number: connection_1,
+    #     connection_2.innovation_number: connection_2,
+    #     connection_3.innovation_number: connection_3,
+    #     connection_4.innovation_number: connection_4
+    # }
+
+    # winner_genome = AgentGenome(
+    #     nodes_dict=nodes_dict,
+    #     connections_dict=connection_dict,
+    #     start_node_innovation_number=6,
+    #     end_node_innovation_number=1
+    # )
+
+    # phenotype = Phenotype(
+    #     genome=winner_genome,
+    #     llm_client=llm_client
+    # )
+
     # 2. Fetch the ENTIRE dataset
     print("Fetching the COMPLETE dataset for stratified baseline...")
     initial_problems_pool = dataset_manager.get_entire_dataset_stratified(dataset_manager.build_prompt_clutrr)
@@ -93,80 +101,19 @@ async def run_baseline():
     
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-    node_0 = PromptNode(
-        name="Node 0", 
-        instruction="Determine the primary relationship established by the given kinship word.", 
-        innovation_number=0
-    )
-    node_1 = PromptNode(
-        name="Node 1", 
-        instruction="As a familial researcher, state the kinship word and respond with exactly one word.", 
-        innovation_number=1
-    )
-    node_6 = PromptNode(
-        name="Node 6", 
-        instruction="Analyze the provided context and extract the specific variables required for the final execution. Prioritize clarity and conciseness in your response.",
-        innovation_number=6
-    )
-    node_3 = PromptNode(
-        name="Node 3", 
-        instruction="As a family historian, identify the specific familial connection implied by the provided context.",
-        innovation_number=3
-    )
-
-
-    nodes_dict = {
-        0: node_0,
-        1: node_1,
-        3: node_3,
-        6: node_6
-    }
-
-    connection_1 = Connection(
-        input_node_in=node_6.innovation_number, 
-        output_node_in=node_3.innovation_number, 
-        enabled=True
-    )
-    connection_2 = Connection(
-        input_node_in=node_6.innovation_number, 
-        output_node_in=node_0.innovation_number, 
-        enabled=True
-    )
-    connection_3 = Connection(
-        input_node_in=node_3.innovation_number, 
-        output_node_in=node_0.innovation_number, 
-        enabled=True
-    )
-    connection_4 = Connection(
-        input_node_in=node_0.innovation_number, 
-        output_node_in=node_1.innovation_number, 
-        enabled=True
-    )
-
-
-    connection_dict = {
-        connection_1.innovation_number: connection_1,
-        connection_2.innovation_number: connection_2,
-        connection_3.innovation_number: connection_3,
-        connection_4.innovation_number: connection_4
-    }
-
-    winner_genome = AgentGenome(
-        nodes_dict=nodes_dict,
-        connections_dict=connection_dict,
-        start_node_innovation_number=6,
-        end_node_innovation_number=1
-    )
-
-    phenotype = Phenotype(
-        genome=winner_genome,
-        llm_client=llm_client
-    )
-
-    order = winner_genome.get_execution_order()
+    order = era_best.genome.get_execution_order()
     
+    async def sem_task(semaphore, fitness, individual, problem, execution_order):
+        async with semaphore:
+            return await fitness._evaluate_single_problem(
+                individual=individual, 
+                problem=problem, 
+                execution_order=execution_order
+            )
+
+    # Then update your tasks list construction:
     tasks = [
-        _evaluate_single_problem(individual=phenotype, problem=problem, execution_order=order, fitness=fitness, semaphore=semaphore)
+        sem_task(semaphore, fitness, era_best, problem, order)
         for problem in initial_problems_pool
     ]
     
@@ -209,33 +156,27 @@ async def run_baseline():
     # 5. Output the Stratified Report
     total_problems = len(initial_problems_pool)
     
-    print("\n" + "="*50)
-    print("🎯 STRATIFIED BASELINE REPORT")
-    print("="*50)
-    print(f"Execution Time: {execution_time:.2f} seconds")
-    print(f"Total Problems Evaluated: {total_problems}\n")
+    log_and_print("\n" + "="*50)
+    log_and_print("🎯 STRATIFIED BASELINE REPORT")
+    log_and_print("="*50)
+    log_and_print(f"Execution Time: {execution_time:.2f} seconds")
+    log_and_print(f"Total Problems Evaluated: {total_problems}\n")
 
     # Sort the dictionary by reasoning length to print in order
     for length in sorted(stratified_stats.keys()):
         stats = stratified_stats[length]
         acc = (stats["correct"] / stats["total"]) * 100 if stats["total"] > 0 else 0
-        print(f"Level {length:02d} Hops: Accuracy {acc:05.2f}% ({stats['correct']}/{stats['total']})")
+        log_and_print(f"Level {length:02d} Hops: Accuracy {acc:05.2f}% ({stats['correct']}/{stats['total']})")
 
-    print("-" * 50)
+    log_and_print("-" * 50)
     overall_accuracy = (total_correct / total_problems) * 100
     overall_fitness = total_score / total_problems
     average_length = total_words_generated / total_problems
     
-    print(f"Overall Dataset Accuracy: {overall_accuracy:.2f}%")
-    print(f"Overall Average Fitness:  {overall_fitness:.4f}")
-    print("-" * 50)
-    print(f"Average Answer Length:    {average_length:.2f} words")
-    print(f"Exactly 1-Word Answers:   {total_1_word} ({(total_1_word/total_problems)*100:.1f}%)")
-    print(f"Exactly 2-Word Answers:   {total_2_word} ({(total_2_word/total_problems)*100:.1f}%)")
-    print("=" * 50)
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(run_baseline())
-    finally:
-        force_cleanup()
+    log_and_print(f"Overall Dataset Accuracy: {overall_accuracy:.2f}%")
+    log_and_print(f"Overall Average Fitness:  {overall_fitness:.4f}")
+    log_and_print("-" * 50)
+    log_and_print(f"Average Answer Length:    {average_length:.2f} words")
+    log_and_print(f"Exactly 1-Word Answers:   {total_1_word} ({(total_1_word/total_problems)*100:.1f}%)")
+    log_and_print(f"Exactly 2-Word Answers:   {total_2_word} ({(total_2_word/total_problems)*100:.1f}%)")
+    log_and_print("=" * 50)

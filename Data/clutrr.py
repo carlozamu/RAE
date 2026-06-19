@@ -297,7 +297,7 @@ CRITICAL TASK: State the family relationship. Output EXACTLY ONE WORD from the l
         return few_shots_prompt
     
     @staticmethod
-    def build_prompt_clutrr(story: str, query: str, examles: str) -> str:
+    def build_prompt_clutrr(story: str, query: str, examples: str) -> str:
         clean_query = query.replace("(", "").replace(")", "").replace("'", "")
         try:
             name1, name2 = [name.strip() for name in clean_query.split(',')]
@@ -417,137 +417,71 @@ Understand the family relationship between {name2} and {name1}, and to describe 
             print(f"\n[IO Error] File {filepath} is corrupted or not valid JSON.")
             return []
     
-    def get_curated_dataset(self) -> list[dict]:
-        # 1. Group actual data by Relation -> Complexity -> List of Items
+    def get_curated_dataset(self, n: int) -> list[dict]:
+        # 1. Group data by complexity first for easier access
+        # We maintain the data_store for the n=0 logic
         data_store = defaultdict(lambda: defaultdict(list))
+        by_complexity = defaultdict(list)
         
         for split_name in self.dataset.keys():
             for item in self.dataset[split_name]:
                 target = item.get("target_text", "")
                 task_name = item.get("task_name", "")
-                
-                if not target:
-                    continue
+                if not target: continue
                 
                 match = re.search(r"task_(\d+)\.(\d+)", task_name)
                 if match:
-                    injected_noise = int(match.group(1))
-                    reasoning_length = int(match.group(2))
-
-                    story = item.get("story", "")
-                    query = item.get("query", "")
-
-                    prompt = self.build_prompt_clutrr(story, query)
+                    injected_noise, reasoning_length = int(match.group(1)), int(match.group(2))
+                    prompt = self.build_prompt_clutrr(item.get("story", ""), item.get("query", ""))
                     
-                    # Store the formatted item
-                    data_store[target][reasoning_length].append({
-                        "question": prompt,
-                        "answer": target,
-                        "task_type": "cluttr",
-                        "metadata": {
-                            "story": story,
-                            "query": query,
-                            "task_name": task_name,
-                            "reasoning_length": reasoning_length,
-                            "injected_noise": injected_noise,
-                            "split_origin": split_name
-                        },
+                    formatted_item = {
+                        "question": prompt, "answer": target, "task_type": "cluttr",
+                        "metadata": {"story": item.get("story"), "query": item.get("query"), 
+                                    "task_name": task_name, "reasoning_length": reasoning_length, 
+                                    "injected_noise": injected_noise, "split_origin": split_name},
                         "id": item.get("id", None)
-                    })             
+                    }
+                    data_store[target][reasoning_length].append(formatted_item)
+                    by_complexity[reasoning_length].append(formatted_item)
+
+        # --- n=0: Original Behavior ---
+        if n == 0:
+            curated_dataset = []
+            for relation, complexities_dict in data_store.items():
+                complexities = list(complexities_dict.keys())
+                random.shuffle(complexities)
+                for i in range(5):
+                    for attempts in range(len(complexities)):
+                        target_k = complexities[(i + attempts) % len(complexities)]
+                        bucket = complexities_dict[target_k]
+                        if bucket:
+                            curated_dataset.append(bucket.pop(random.randrange(len(bucket))))
+                            break
+            random.shuffle(curated_dataset)
+            return curated_dataset
+
+        # --- n=1: Stratified Sampling ---
+        elif n == 1:
+            curated_dataset = []
+            # Take 28 from levels 2, 3, 4
+            for level in [2, 3, 4]:
+                curated_dataset.extend(random.sample(by_complexity[level], 28))
+            # Take 1 from all other levels (2, 3, 4 are already done)
+            for level in by_complexity.keys():
+                if level not in [2, 3, 4]:
+                    curated_dataset.extend(random.sample(by_complexity[level], 1))
+            return curated_dataset
+
+        # --- n=2: Specific Level Sampling ---
+        elif n == 2:
+            # Take 90 from level 6
+            return random.sample(by_complexity[6], 90)
         
-        # 2. Sample 5 elements per relation using the modulo/shuffle algorithm
-        curated_dataset = []
-        
-        for relation, complexities_dict in data_store.items():
-            complexities = list(complexities_dict.keys())
-            random.shuffle(complexities) 
-            
-            num_complexities = len(complexities)
-            sampled_for_relation = 0
-            
-            for i in range(5):
-                attempts = 0
-                item_found = False
-                
-                while attempts < num_complexities:
-                    target_idx = (i + attempts) % num_complexities
-                    target_k = complexities[target_idx]
-                    
-                    bucket = complexities_dict[target_k]
-                    
-                    if len(bucket) > 0:
-                        random_idx = random.randrange(len(bucket))
-                        selected_item = bucket.pop(random_idx)
-                        
-                        curated_dataset.append(selected_item)
-                        sampled_for_relation += 1
-                        item_found = True
-                        break
-                    
-                    attempts += 1
-                
-                if not item_found:
-                    print(f"Warning: Dataset exhausted for [{relation.upper()}] after {sampled_for_relation} samples.")
-                    break 
-                    
-        print(f"Extraction complete. Total curated elements: {len(curated_dataset)}\n")
-        
-        # Optional: Shuffle the final dataset
-        random.shuffle(curated_dataset)
+        return []
+    
+    def get_or_create_curated_dataset(self, n:int) -> list[dict]:
 
-        # ==========================================
-        # 3. VERIFICATION AND ANALYSIS PRINTS
-        # ==========================================
-        
-        # Rebuild distribution dictionary specifically from the extracted subset
-        # curated_distribution = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
-        
-        # for item in curated_dataset:
-        #     target = item["answer"]
-        #     complexity = item["metadata"]["reasoning_length"]
-        #     noise = item["metadata"]["injected_noise"]
-        #     curated_distribution[target][complexity][noise] += 1
-
-        # # Print 1: Dataset Distribution Profile
-        # print("=== CURATED DATASET DISTRIBUTION PROFILE ===")
-        # for relation in sorted(curated_distribution.keys()):
-        #     print(f"Target Relation: [{relation.upper()}]")
-        #     total_for_relation = 0
-            
-        #     for complexity in sorted(curated_distribution[relation].keys()):
-        #         noise_counts = curated_distribution[relation][complexity]
-        #         total_for_complexity = sum(noise_counts.values())
-        #         total_for_relation += total_for_complexity
-                
-        #         noise_breakdown = ", ".join([f"Noise {n}: {count}" for n, count in sorted(noise_counts.items())])
-        #         print(f"  Complexity k={complexity} (Total: {total_for_complexity}) -> {noise_breakdown}")
-                
-        #     print(f"  [Total enforced for {relation.upper()}: {total_for_relation}]\n")
-
-        # # Print 2: Class Distribution by Complexity
-        # print("=== CURATED CLASS DISTRIBUTION BY COMPLEXITY ===")
-        # complexity_distribution = defaultdict(dict)
-        
-        # for relation, complexities in curated_distribution.items():
-        #     for complexity, noises in complexities.items():
-        #         total = sum(noises.values())
-        #         if total > 0:
-        #             complexity_distribution[complexity][relation] = total
-
-        # for complexity in sorted(complexity_distribution.keys()):
-        #     print(f"Complexity k={complexity}")
-            
-        #     relation_counts = complexity_distribution[complexity]
-        #     for relation in sorted(relation_counts.keys()):
-        #         print(f"  -> [{relation.upper()}]: {relation_counts[relation]}")
-                
-        #     print(f"  [Total classes represented at k={complexity}: {len(relation_counts)}]\n")
-
-        return curated_dataset
-
-    def get_or_create_curated_dataset(self):
-
-        SAVE_PATH = "Data/curated_clutrr_subset.json"
+        SAVE_PATH = f"Data/curated_clutrr_subset_{n}.json"
         
         # 1. Check if we already have a frozen dataset
         if os.path.exists(SAVE_PATH):
@@ -558,7 +492,7 @@ Understand the family relationship between {name2} and {name1}, and to describe 
             
         # 2. If no frozen data exists, generate it from scratch and lock it
         else:
-            final_data = self.get_curated_dataset()
+            final_data = self.get_curated_dataset(n)
             
             if final_data:
                 self.save_dataset_to_json(final_data, SAVE_PATH)
